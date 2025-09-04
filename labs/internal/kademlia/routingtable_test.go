@@ -28,3 +28,7 @@ func TestRoutingTable(t *testing.T) {
 		t.Fatalf("Expected 6 contacts but instead got %d", len(contacts))
 	}
 }
+
+func TestRoutingTablePing(t *testing.T) {
+	
+}
