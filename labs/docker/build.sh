@@ -1,6 +1,10 @@
 #!/bin/bash
 
-VERSION_FILE="version.txt"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/version.txt"
+DOCKERFILE_PATH="$SCRIPT_DIR/../Dockerfile"
+BUILD_CONTEXT="$SCRIPT_DIR/.."
 
 # Create version file if it doesn't exist
 if [ ! -f "$VERSION_FILE" ]; then
@@ -21,4 +25,4 @@ echo "$NEW_VERSION" > "$VERSION_FILE"
 
 # Build the Docker image using docker compose with the incremented version
 echo "Building Docker image with docker build..."
-docker build -f ../Dockerfile -t kadlab:latest --build-arg BUILD_VERSION="$NEW_VERSION" --build-arg BUILD_TIME="$BUILD_TIME" .. 
+docker build -f "$DOCKERFILE_PATH" -t kadlab:latest --build-arg BUILD_VERSION="$NEW_VERSION" --build-arg BUILD_TIME="$BUILD_TIME" "$BUILD_CONTEXT"

@@ -4,12 +4,16 @@ package main
 
 import (
 	"context"
+	"crypto/sha1"
 	"d7024e/internal/kademlia"
 	build "d7024e/pkg/build"
+	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -38,6 +42,14 @@ func (hook *DefaultFieldHook) Levels() []log.Level {
 	return log.AllLevels
 }
 
+func printRT(rt *kademlia.RoutingTable) {
+	log.Debugf("Routing Table:")
+	contacts := rt.FindClosestContacts(kademlia.NewKademliaID("2111111400000000000000000000000000000000"), 20)
+	for i := range contacts {
+		fmt.Println(contacts[i].String())
+	}
+}
+
 func main() {
 
 	// Set log level
@@ -55,16 +67,34 @@ func main() {
 	log.Infof("Build version: %s", build.BuildVersion)
 	log.Infof("Build time: %s", build.BuildTime)
 
-	// log.Debugf("Pretending to run the kademlia app...")
-	// Using stuff from the kademlia package here. Something like...
-	// id := kademlia.NewKademliaID("FFFFFFFF00000000000000000000000000000000")
-	// contact := kademlia.NewContact(id, "kademliaNodes-1:8000")
-	// log.Debugf("Contact: %s", contact.String())
-	// log.Debugf("Contact: %v", contact)
+	uuid, err := uuid.NewUUID()
+	if err != nil {
+		log.Fatalf("Failed to create UUID: %v", err)
+	}
+
+	hash := sha1.New()
+	hash.Write(uuid[:])
+	id := kademlia.NewKademliaID(fmt.Sprintf("%x", hash.Sum(nil)))
+	contact := kademlia.NewContact(id, fmt.Sprintf("%s:8000", localIP))
+	log.Debugf("Contact: %s", contact.String())
+	log.Debugf("Contact: %v", contact)
+	rt := kademlia.NewRoutingTable(contact)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer printRT(rt)
 
-	go kademlia.Listen("0.0.0.0", 8000, ctx)
+	ipAddr, err := netip.ParseAddr(localIP)
+	if err != nil {
+		log.Fatalf("Failed to parse local IP: %v", err)
+	}
+	network := kademlia.Network{
+		IP:   ipAddr,
+		Port: 8000,
+		RT:   rt,
+	}
+
+	go network.Listen(ctx)
 
 	time.Sleep(2 * time.Second) // Wait for all nodes to start listening
 
@@ -80,10 +110,14 @@ func main() {
 		if a == localIP+":8000" {
 			continue
 		}
-		kademlia.SendSimplePing(a)
+		err := network.SendInitPing(a)
+		if err != nil {
+			log.Debugln("Error sending PING: ", err)
+		}
+
 	}
 
-	time.Sleep(200 * time.Second)
+	time.Sleep(10 * time.Second)
 	cancel()
 
 }
