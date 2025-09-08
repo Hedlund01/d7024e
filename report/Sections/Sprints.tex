@@ -1,0 +1,30 @@
+\section{Sprints}
+
+\subsection{Organizing Sprints}
+
+To structure and organize the work efficiently, GitHub Projects is used to create a storyboard for both sprints. The storyboard is available under the 
+Projects tab in the repository, providing an overview of the workflow throughout the course.
+
+\subsection{Sprint 0}
+\subsubsection{Done in sprint 0}
+During sprint 0 we setup the project repository from the Github template given in the course. We also configured a containerization strategy using Docker in swarm mode. We established bash scripts to automate common tasks, such as building and deploying the application. This lets us with a simple script deploy up to n instances, where n is a argument for the deploy script, with ease. Utilizing these scripts, we can easily scale up and down the number of instances in our swarm and Kademlia network in the upcoming sprints.
+
+After setting up the containerization tools, we started on the implementation of finding nodes in the same docker network and establishing communication between them. Our approach involved DNS lookups via the docker DNS service, to get the docker ip addresses of the other containers in the same docker swarm stack. The drawback of this approach is that the containers that start up early won't be able to find the containers that start up later, since they don't exist yet. We didn't solve this problem yet, as we will implement Kademlia protocol for peer discovery to address these issues later in the sprint.
+    
+\subsubsection{Plan for sprint 0}
+In sprint 0, we plan to focus on the following tasks:
+\begin{itemize}
+    \item \textbf{M1} Implement the Kademlia protocol for pinging
+    \item \textbf{M1} Implement the Kademlia protocol for network joining
+    \item \textbf{M1} Implement the Kademlia protocol for finding nodes
+    \item \textbf{M1} Create unit tests for the implemented Kademlia functionalities, via mocking
+\end{itemize}
+
+\subsection{Sprint 1}
+
+\subsubsection{Planned work}
+
+As illustrated in Figure \ref{fig:todos_for_sprints_at_sprint_0}, the plan is to complete all underlying functionality (M2-M7) during sprint 1. 
+Subsequently, focus will shift to the qualification goals (U1–U5), during sprint 2. This structure was chosen because establishing and verifying the core functionality 
+first ensures a stable foundation, which in turn facilitates the successful implementation of the qualification objectives.
+
