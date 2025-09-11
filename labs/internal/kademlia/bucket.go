@@ -2,6 +2,7 @@ package kademlia
 
 import (
 	"container/list"
+	"d7024e/internal/kademlia/id"
 )
 
 // bucket definition
@@ -40,7 +41,7 @@ func (bucket *bucket) AddContact(contact Contact) {
 
 // GetContactAndCalcDistance returns an array of Contacts where 
 // the distance has already been calculated
-func (bucket *bucket) GetContactAndCalcDistance(target *KademliaID) []Contact {
+func (bucket *bucket) GetContactAndCalcDistance(target *kademliaID.KademliaID) []Contact {
 	var contacts []Contact
 
 	for elt := bucket.list.Front(); elt != nil; elt = elt.Next() {

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestPingHandler(t *testing.T) {
+func TestPongHandler(t *testing.T) {
 	network := mock.NewMockNetwork()
 	nodeA, err := kademlia.NewKademliaNode(network, net.Address{
 		IP:   "127.0.0.1",
@@ -26,28 +26,33 @@ func TestPingHandler(t *testing.T) {
 		t.Fatalf("Failed to create nodeB: %v", err)
 	}
 
-	pongChannel := make(chan net.Message, 1)
+	done := make(chan net.Message, 1)
 
-	nodeA.Handle("PING", PingHandler)
+	// Set up handlers
+	nodeA.Handle("PING", func(msg *net.Message, node kademlia.IKademliaNode) error {
+		// When nodeA receives a PING, it should send a PONG back
+		return node.SendPongMessage(msg.From, msg.MessageID)
+	})
 
 	nodeB.Handle("PONG", func(msg *net.Message, node kademlia.IKademliaNode) error {
-		t.Log("Received PONG")
-		pongChannel <- *msg
-		return nil
+		// When nodeB receives a PONG, capture it for testing
+		done <- *msg
+		return PongHandler(msg, node)
 	})
 
 	nodeA.Start()
 	nodeB.Start()
 
-	nodeB.SendPingMessage(nodeA.Address())
+	// NodeB sends PING to NodeA
+	err = nodeB.SendPingMessage(nodeA.Address())
+	assert.NoError(t, err)
 
-	msg := <-pongChannel
-
-	nodeA.Close()
-	nodeB.Close()
-
-	
+	// Wait for the PONG response
+	msg := <-done
 	assert.Equal(t, "PONG", msg.PayloadType)
 	assert.Equal(t, nodeA.Address(), msg.From)
 	assert.Equal(t, nodeB.Address(), msg.To)
+
+	nodeA.Close()
+	nodeB.Close()
 }

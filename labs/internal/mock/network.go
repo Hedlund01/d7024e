@@ -64,7 +64,7 @@ type mockConnection struct {
 	closed  bool
 }
 
-func (c *mockConnection) Send(msg network.Message) error {
+func (c *mockConnection) Send(msg *network.Message) error {
 	c.network.mu.RLock()
 
 	if c.network.partitions[c.addr] || c.network.partitions[msg.To] {
@@ -78,12 +78,11 @@ func (c *mockConnection) Send(msg network.Message) error {
 		return errors.New("destination address not found")
 	}
 
-	// Add network reference to message for replies
-	msg.Network = c.network
+
 
 	// Keep the lock while sending to prevent the channel from being closed
 	select {
-	case ch <- msg:
+	case ch <- *msg:
 		c.network.mu.RUnlock()
 		return nil
 	default:

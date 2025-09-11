@@ -1,20 +1,48 @@
 package kademlia
 
 import (
+	kademliaID "d7024e/internal/kademlia/id"
 	"d7024e/pkg/network"
-	"d7024e/pkg/node"
-	"fmt"
+	"sync"
+	"time"
+
 	log "github.com/sirupsen/logrus"
 )
 
-// KademliaNode extends the base node with Kademlia-specific functionality
-type KademliaNode struct {
-	*node.BaseNode
-	routingTable *RoutingTable
-	kademlia     *Kademlia
+// MessageHandler is a function that processes incoming messages
+type MessageHandler func(msg *network.Message, node IKademliaNode) error
+
+// IKademliaNode defines the interface that all Kademlia node types must implement
+type IKademliaNode interface {
+	// Core networking methods
+	send(to network.Address, msgType string, data []byte, messageID *kademliaID.KademliaID) error
+	SendPingMessage(to network.Address) error
+	SendPongMessage(to network.Address, messageID *kademliaID.KademliaID) error
+
+	Address() network.Address
+
+	// Message handling
+	Handle(msgType string, handler MessageHandler)
+	Start()
+	Close() error
+
+	GetRoutingTable() *RoutingTable
+	GetKademlia() *Kademlia
 }
 
-// KademliaNodeData contains Kademlia-specific data that handlers might need
+// BaseNode provides common functionality that can be embedded
+type KademliaNode struct {
+	address        network.Address
+	network        network.Network
+	connection     network.Connection
+	handlers       map[string]MessageHandler
+	closed         bool
+	closeMu        sync.RWMutex
+	routingTable   *RoutingTable
+	kademlia       *Kademlia
+	messageChanMap map[kademliaID.KademliaID]chan kademliaID.KademliaID
+}
+
 type KademliaNodeData struct {
 	RoutingTable *RoutingTable
 	Kademlia     *Kademlia
@@ -22,26 +50,26 @@ type KademliaNodeData struct {
 
 // NewKademliaNode creates a new Kademlia node
 func NewKademliaNode(network network.Network, addr network.Address) (*KademliaNode, error) {
-	baseNode, err := node.NewBaseNode(network, addr)
+	conn, err := network.Listen(addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create base node: %v", err)
+		return nil, err
 	}
 
-	// Create Kademlia-specific components
-	contact := NewContact(NewRandomKademliaID(), addr.String())
+	contact := NewContact(kademliaID.NewRandomKademliaID(), addr.String())
 	routingTable := NewRoutingTable(contact)
-	kademliaInstance := &Kademlia{}
 
-	kademliaNode := &KademliaNode{
-		BaseNode:     baseNode,
-		routingTable: routingTable,
-		kademlia:     kademliaInstance,
-	}
-
-	return kademliaNode, nil
+	return &KademliaNode{
+		address:        addr,
+		network:        network,
+		connection:     conn,
+		handlers:       make(map[string]MessageHandler),
+		closed:         false,
+		kademlia:       &Kademlia{},
+		routingTable:   routingTable,
+		messageChanMap: make(map[kademliaID.KademliaID]chan kademliaID.KademliaID),
+	}, nil
 }
 
-// GetNodeData returns Kademlia-specific data
 func (kn *KademliaNode) GetNodeData() interface{} {
 	return &KademliaNodeData{
 		RoutingTable: kn.routingTable,
@@ -57,6 +85,21 @@ func (kn *KademliaNode) GetRoutingTable() *RoutingTable {
 // GetKademlia provides direct access to the Kademlia instance
 func (kn *KademliaNode) GetKademlia() *Kademlia {
 	return kn.kademlia
+}
+
+func (kn *KademliaNode) getMessageChan(messageID *kademliaID.KademliaID) (chan kademliaID.KademliaID, bool) {
+	if messageID == nil {
+		return nil, false
+	}
+	chn, exists := kn.messageChanMap[*messageID]
+	return chn, exists
+}
+
+func (kn *KademliaNode) addToMessageChanMap(messageID *kademliaID.KademliaID) {
+	if messageID == nil {
+		return
+	}
+	kn.messageChanMap[*messageID] = make(chan kademliaID.KademliaID, 1)
 }
 
 // Start begins listening for incoming messages with Kademlia-specific handling
@@ -84,20 +127,107 @@ func (kn *KademliaNode) Start() {
 			}
 
 			if exists && handler != nil {
-				if err := handler(msg, kn); err != nil {
-					log.Printf("Handler error: %v", err)
+				// Check if this is a PONG message and if there's a message channel for it
+				if msg.PayloadType == "PONG" {
+					msgChan, chanExists := kn.getMessageChan(msg.MessageID)
+					if chanExists && msg.MessageID != nil {
+						// Send the message ID to the channel
+						msgChan <- *msg.MessageID
+						log.WithField("msgID", msg.MessageID.String()).WithField("func", "KademliaNode/Start").Debugf("PING message ID sent to channel")
+						kn.GetRoutingTable().AddContact(NewContact(msg.FromID, msg.From.String()))
+					} else {
+						return
+					}
 				}
+
+				go handler(&msg, kn)
 			}
 		}
 	}()
 }
 
-// AddContact adds a contact to the routing table
-func (kn *KademliaNode) AddContact(contact Contact) {
-	kn.routingTable.AddContact(contact)
+// Address returns the node's address
+func (b *KademliaNode) Address() network.Address {
+	return b.address
 }
 
-// FindClosestContacts finds the k closest contacts to a target
-func (kn *KademliaNode) FindClosestContacts(target *KademliaID, count int) []Contact {
-	return kn.routingTable.FindClosestContacts(target, count)
+// Handle registers a message handler for a specific message type
+func (b *KademliaNode) Handle(msgType string, handler MessageHandler) {
+	b.handlers[msgType] = handler
+}
+
+// Close shuts down the Kademlia node
+func (b *KademliaNode) Close() error {
+	b.closeMu.Lock()
+	b.closed = true
+	b.closeMu.Unlock()
+	return b.connection.Close()
+}
+
+// GetConnection returns the connection for use by concrete implementations
+func (b *KademliaNode) GetConnection() network.Connection {
+	return b.connection
+}
+
+// GetHandlers returns the handlers map for use by concrete implementations
+func (b *KademliaNode) GetHandlers() map[string]MessageHandler {
+	return b.handlers
+}
+
+// IsClosed returns whether the node is closed
+func (b *KademliaNode) IsClosed() bool {
+	b.closeMu.RLock()
+	defer b.closeMu.RUnlock()
+	return b.closed
+}
+
+func checkReply(b *KademliaNode, messageID *kademliaID.KademliaID) {
+	if messageID == nil {
+		return
+	}
+	msgChan, exists := b.getMessageChan(messageID)
+	if !exists {
+		return
+	}
+
+	select {
+	case <-msgChan:
+		log.WithField("msgID", messageID.String()).WithField("func", "checkReply").Debugf("Received reply for message ID")
+	case <-time.After(30 * time.Second):
+		log.WithField("msgID", messageID.String()).WithField("func", "checkReply").Debugf("Timeout waiting for reply for message ID")
+	}
+
+	delete(b.messageChanMap, *messageID)
+}
+
+// Send sends a message to the target address
+func (b *KademliaNode) send(to network.Address, msgType string, data []byte, messageID *kademliaID.KademliaID) error {
+	connection, err := b.network.Dial(to)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+
+	b.addToMessageChanMap(messageID)
+	go checkReply(b, messageID)
+
+	msg := &network.Message{
+		From:        b.address,
+		To:          to,
+		Payload:     data,
+		PayloadType: msgType,
+		FromID:      b.routingTable.me.ID,
+		MessageID:   messageID,
+	}
+
+	return connection.Send(msg)
+}
+
+func (kn *KademliaNode) SendPingMessage(to network.Address) error {
+
+	return kn.send(to, "PING", []byte("ping"), kademliaID.NewRandomKademliaID())
+}
+
+func (kn *KademliaNode) SendPongMessage(to network.Address, messageID *kademliaID.KademliaID) error {
+	return kn.send(to, "PONG", []byte("pong"), messageID)
 }
