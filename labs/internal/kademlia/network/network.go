@@ -3,12 +3,12 @@ package kademliaNetwork
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"strconv"
+	"sync"
 
 	network "d7024e/pkg/network"
-	"errors"
-	"sync"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -81,7 +81,7 @@ func (kademliaNetwork *KademliaNetwork) Partition(group1, group2 []network.Addre
 
 func (kademliaNetwork *KademliaNetwork) Heal() {
 	// Implement healing logic here
-	//TODO
+	// TODO
 	panic("Healing not implemented")
 }
 
@@ -141,7 +141,7 @@ func (kademliaConnection *KademliaConnection) Recv() (network.Message, error) {
 	return msg, nil
 }
 
-// resolveTasks returns "ip:port" addresses for all replicas (Swarm).
+// ResolveTasks returns "ip:port" addresses for all replicas (Swarm).
 func (network *KademliaNetwork) ResolveTasks(service string, port int) ([]string, error) {
 	hosts, err := net.LookupHost("tasks." + service)
 	if err != nil {

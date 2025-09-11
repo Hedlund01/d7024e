@@ -1,7 +1,8 @@
 package kademlia
 
-const bucketSize = 20
+import kademliaID "d7024e/internal/kademlia/id"
 
+const bucketSize = 20
 
 // RoutingTable definition
 // keeps a refrence contact of me and an array of buckets
