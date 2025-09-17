@@ -2,15 +2,14 @@ package tempHandlers
 
 import (
 	kademliaContact "d7024e/internal/kademlia/contact"
-	kademliaID "d7024e/internal/kademlia/id"
 	"d7024e/pkg/network"
+	"encoding/json"
 )
 
-type ContactsWithId struct {
-	Contacts []kademliaContact.Contact
-	MsgId    *kademliaID.KademliaID
-}
-
-func FindNodeResponseTempHandler(msg *network.Message, contactCh chan ContactsWithId, valueCh chan string) error {
-	return nil
+func FindNodeResponseTempHandler(msg *network.Message, contactCh chan []kademliaContact.Contact, valueCh chan string) error {
+	contacts := []kademliaContact.Contact{}
+	error := json.Unmarshal(msg.Payload, &contacts)
+	println("FindNodeResponseTempHandler: received contacts:", contacts)
+	contactCh <- contacts
+	return error
 }

@@ -12,7 +12,6 @@ import (
 )
 
 func TestRPCValiadtion(t *testing.T) {
-
 	println("Starting TestRPCValidation")
 	network := mock.NewMockNetwork()
 	alice, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080})
@@ -20,12 +19,12 @@ func TestRPCValiadtion(t *testing.T) {
 
 	done := make(chan *net.Message, 2)
 
-	alice.Handle("PING", func(msg *net.Message, node IKademliaNode) error {
+	alice.Handle(PING, func(msg *net.Message, node IKademliaNode) error {
 		t.Logf("Alice gets: %s\n", msg.Payload)
-		return node.send(msg.From, "PONG", []byte("REAL PONG"), msg.MessageID)
+		return node.send(msg.From, PONG, []byte("REAL PONG"), msg.MessageID)
 	})
 
-	bob.Handle("PONG", func(msg *net.Message, node IKademliaNode) error {
+	bob.Handle(PONG, func(msg *net.Message, node IKademliaNode) error {
 		t.Logf("Bob gets: %s\n", msg.Payload)
 		done <- msg
 		return nil
@@ -55,7 +54,6 @@ func TestRPCValiadtion(t *testing.T) {
 	bob.Close()
 
 	assert.Equal(t, 1, messagesReceived, "Expected exactly one message to be received")
-
 }
 
 func TestSimpleIterativeNodeLookup(t *testing.T) {
