@@ -36,7 +36,6 @@ func TestRPCValiadtion(t *testing.T) {
 
 	bob.SendPingMessage(alice.Address())
 
-
 	alice.SendPongMessage(bob.Address(), kademliaID.NewRandomKademliaID())
 
 	// Extract all messages from done channel may be two or one
@@ -57,6 +56,71 @@ func TestRPCValiadtion(t *testing.T) {
 
 	assert.Equal(t, 1, messagesReceived, "Expected exactly one message to be received")
 
+}
+
+func TestSimpleIterativeNodeLookup(t *testing.T) {
+	network := mock.NewMockNetwork()
+	nodeA, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080})
+	nodeB, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8081})
+	nodeC, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8082})
+
+	nodeA.Handle(PING, func(msg *net.Message, node IKademliaNode) error {
+		return node.SendPongMessage(msg.From, msg.MessageID)
+	})
+
+	nodeA.Handle(PONG, func(msg *net.Message, node IKademliaNode) error {
+		return nil
+	})
+
+	nodeB.Handle(PING, func(msg *net.Message, node IKademliaNode) error {
+		return node.SendPongMessage(msg.From, msg.MessageID)
+	})
+
+	nodeB.Handle(PONG, func(msg *net.Message, node IKademliaNode) error {
+		return nil
+	})
+
+	nodeC.Handle(PING, func(msg *net.Message, node IKademliaNode) error {
+		return node.SendPongMessage(msg.From, msg.MessageID)
+	})
+
+	id := kademliaID.NewRandomKademliaID()
+
+	nodeB.Handle(FIND_NODE_REQUEST, func(msg *net.Message, node IKademliaNode) error {
+		t.Logf("Node B received FIND_NODE_REQUEST for ID: %s", id)
+		contacts := node.GetRoutingTable().FindClosestContacts(id, 3)
+		err := nodeB.SendFindNodeResponse(msg.From, contacts, msg.MessageID)
+		if err != nil {
+			t.Logf("Error sending FIND_NODE_RESPONSE from Node B: %v", err)
+			return nil
+		}
+		t.Logf("Node B sent FIND_NODE_RESPONSE with contacts: %v", contacts)
+
+		return nil
+	})
+
+	nodeA.Start()
+	nodeB.Start()
+	nodeC.Start()
+
+	time.Sleep(1 * time.Second)
+
+	nodeA.SendPingMessage(nodeB.Address())
+	nodeB.SendPingMessage(nodeC.Address())
+
+	time.Sleep(1 * time.Second)
+
+	nodeAContactReturned := nodeA.LookupContact(nodeC.GetRoutingTable().me.ID)
+
+	t.Logf("Node A looked up contact: %v", nodeAContactReturned)
+
+	assert.NotNil(t, nodeAContactReturned, "Expected contact to be found")
+	assert.Equal(t, nodeC.address.Port, nodeAContactReturned.GetNetworkAddress().Port, "Expected found contact port to match")
+	assert.Equal(t, nodeC.GetRoutingTable().me.ID.String(), nodeAContactReturned.ID.String(), "Expected found contact ID to match")
+
+	nodeA.Close()
+	nodeB.Close()
+	nodeC.Close()
 }
 
 // 	// Create network and nodes

@@ -1,4 +1,4 @@
-package kademlia
+package kademliaContact
 
 import (
 	kademliaID "d7024e/internal/kademlia/id"

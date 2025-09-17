@@ -1,36 +1,39 @@
 package kademlia
 
-import kademliaID "d7024e/internal/kademlia/id"
+import (
+	kademliaID "d7024e/internal/kademlia/id"
+	kademliaContact "d7024e/internal/kademlia/contact"
+	"d7024e/internal/kademlia/bucket"
+)
 
-const bucketSize = 20
 
 // RoutingTable definition
 // keeps a refrence contact of me and an array of buckets
 type RoutingTable struct {
-	me      Contact
-	buckets [kademliaID.IDLength * 8]*bucket
+	me      kademliaContact.Contact
+	buckets [kademliaID.IDLength * 8]*kademliaBucket.Bucket
 }
 
 // NewRoutingTable returns a new instance of a RoutingTable
-func NewRoutingTable(me Contact) *RoutingTable {
+func NewRoutingTable(me kademliaContact.Contact) *RoutingTable {
 	routingTable := &RoutingTable{}
 	for i := 0; i < kademliaID.IDLength*8; i++ {
-		routingTable.buckets[i] = newBucket()
+		routingTable.buckets[i] = kademliaBucket.NewBucket()
 	}
 	routingTable.me = me
 	return routingTable
 }
 
 // AddContact add a new contact to the correct Bucket
-func (routingTable *RoutingTable) AddContact(contact Contact) {
+func (routingTable *RoutingTable) AddContact(contact kademliaContact.Contact) {
 	bucketIndex := routingTable.getBucketIndex(contact.ID)
 	bucket := routingTable.buckets[bucketIndex]
 	bucket.AddContact(contact)
 }
 
 // FindClosestContacts finds the count closest Contacts to the target in the RoutingTable
-func (routingTable *RoutingTable) FindClosestContacts(target *kademliaID.KademliaID, count int) []Contact {
-	var candidates ContactCandidates
+func (routingTable *RoutingTable) FindClosestContacts(target *kademliaID.KademliaID, count int) []kademliaContact.Contact {
+	var candidates kademliaContact.ContactCandidates
 	bucketIndex := routingTable.getBucketIndex(target)
 	bucket := routingTable.buckets[bucketIndex]
 
@@ -56,7 +59,7 @@ func (routingTable *RoutingTable) FindClosestContacts(target *kademliaID.Kademli
 	return candidates.GetContacts(count)
 }
 
-func (routingTable *RoutingTable) GetMe() Contact {
+func (routingTable *RoutingTable) GetMe() kademliaContact.Contact {
 	return routingTable.me
 }
 
@@ -73,3 +76,4 @@ func (routingTable *RoutingTable) getBucketIndex(id *kademliaID.KademliaID) int 
 
 	return kademliaID.IDLength*8 - 1
 }
+

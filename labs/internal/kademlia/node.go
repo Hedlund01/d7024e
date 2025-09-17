@@ -1,16 +1,36 @@
 package kademlia
 
 import (
+	kademliaBucket "d7024e/internal/kademlia/bucket"
+	kademliaContact "d7024e/internal/kademlia/contact"
+	"d7024e/internal/kademlia/handlers/tempHandlers"
+	tempHandlersPkg "d7024e/internal/kademlia/handlers/tempHandlers"
 	kademliaID "d7024e/internal/kademlia/id"
 	"d7024e/pkg/network"
+	"encoding/json"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	FIND_NODE_REQUEST  string = "FIND_NODE"
+	FIND_NODE_RESPONSE string = "FIND_NODE_RESPONSE"
+	STORE_REQUEST      string = "STORE"
+	STORE_RESPONSE     string = "STORE_RESPONSE"
+	LOOKUP_REQUEST     string = "LOOKUP"
+	LOOKUP_RESPONSE    string = "LOOKUP_RESPONSE"
+	PING               string = "PING"
+	PONG               string = "PONG"
+)
+
 // MessageHandler is a function that processes incoming messages
 type MessageHandler func(msg *network.Message, node IKademliaNode) error
+
+type TempMessageHandler func(msg *network.Message, contactCh chan tempHandlersPkg.ContactsWithId, valueCh chan string) error
 
 // IKademliaNode defines the interface that all Kademlia node types must implement
 type IKademliaNode interface {
@@ -27,7 +47,18 @@ type IKademliaNode interface {
 	Close() error
 
 	GetRoutingTable() *RoutingTable
-	GetKademlia() *Kademlia
+}
+
+type tempHandlerKey struct {
+	msgType   string
+	msgId     *kademliaID.KademliaID
+	contactCh chan tempHandlersPkg.ContactsWithId
+	valueCh   chan string
+}
+
+type valueWithId struct {
+	value string
+	msgId *kademliaID.KademliaID
 }
 
 // BaseNode provides common functionality that can be embedded
@@ -36,16 +67,15 @@ type KademliaNode struct {
 	network        network.Network
 	connection     network.Connection
 	handlers       map[string]MessageHandler
+	tempHandlers   map[tempHandlerKey]TempMessageHandler
 	closed         bool
 	closeMu        sync.RWMutex
 	routingTable   *RoutingTable
-	kademlia       *Kademlia
 	messageChanMap map[kademliaID.KademliaID]chan kademliaID.KademliaID
 }
 
 type KademliaNodeData struct {
 	RoutingTable *RoutingTable
-	Kademlia     *Kademlia
 }
 
 // NewKademliaNode creates a new Kademlia node
@@ -55,7 +85,7 @@ func NewKademliaNode(network network.Network, addr network.Address) (*KademliaNo
 		return nil, err
 	}
 
-	contact := NewContact(kademliaID.NewRandomKademliaID(), addr.String())
+	contact := kademliaContact.NewContact(kademliaID.NewRandomKademliaID(), addr.String())
 	routingTable := NewRoutingTable(contact)
 
 	return &KademliaNode{
@@ -63,8 +93,8 @@ func NewKademliaNode(network network.Network, addr network.Address) (*KademliaNo
 		network:        network,
 		connection:     conn,
 		handlers:       make(map[string]MessageHandler),
+		tempHandlers:   make(map[tempHandlerKey]TempMessageHandler),
 		closed:         false,
-		kademlia:       &Kademlia{},
 		routingTable:   routingTable,
 		messageChanMap: make(map[kademliaID.KademliaID]chan kademliaID.KademliaID),
 	}, nil
@@ -73,18 +103,12 @@ func NewKademliaNode(network network.Network, addr network.Address) (*KademliaNo
 func (kn *KademliaNode) GetNodeData() interface{} {
 	return &KademliaNodeData{
 		RoutingTable: kn.routingTable,
-		Kademlia:     kn.kademlia,
 	}
 }
 
 // GetRoutingTable provides direct access to the routing table
 func (kn *KademliaNode) GetRoutingTable() *RoutingTable {
 	return kn.routingTable
-}
-
-// GetKademlia provides direct access to the Kademlia instance
-func (kn *KademliaNode) GetKademlia() *Kademlia {
-	return kn.kademlia
 }
 
 func (kn *KademliaNode) getMessageChan(messageID *kademliaID.KademliaID) (chan kademliaID.KademliaID, bool) {
@@ -121,6 +145,15 @@ func (kn *KademliaNode) Start() {
 
 			handlers := kn.GetHandlers()
 			handler, exists := handlers[msg.PayloadType]
+			tempHandler, tempExists := kn.tempHandlers[tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID}]
+			println("PayloadType: ", msg.PayloadType, " MessageID: ", msg.MessageID, " FromID: ", msg.FromID, " TempExists", tempExists, "TempHandler", tempHandler, " Port", kn.Address().String())
+
+			if tempExists && tempHandler != nil {
+				go tempHandler(&msg, tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID}.contactCh, tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID}.valueCh)
+				delete(kn.tempHandlers, tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID})
+				kn.GetRoutingTable().AddContact(kademliaContact.NewContact(msg.FromID, msg.From.String()))
+				return
+			}
 			if !exists {
 				log.WithField("msgType", msg.PayloadType).WithField("func", "KademliaNode/Start").Debugf("No handler found, using default")
 				handler, exists = handlers["DEFAULT"]
@@ -128,13 +161,13 @@ func (kn *KademliaNode) Start() {
 
 			if exists && handler != nil {
 				// Check if this is a PONG message and if there's a message channel for it
-				if msg.PayloadType == "PONG" {
+				if msg.PayloadType == PONG {
 					msgChan, chanExists := kn.getMessageChan(msg.MessageID)
 					if chanExists && msg.MessageID != nil {
 						// Send the message ID to the channel
 						msgChan <- *msg.MessageID
 						log.WithField("msgID", msg.MessageID.String()).WithField("func", "KademliaNode/Start").Debugf("PING message ID sent to channel")
-						kn.GetRoutingTable().AddContact(NewContact(msg.FromID, msg.From.String()))
+						kn.GetRoutingTable().AddContact(kademliaContact.NewContact(msg.FromID, msg.From.String()))
 					} else {
 						return
 					}
@@ -151,9 +184,14 @@ func (b *KademliaNode) Address() network.Address {
 	return b.address
 }
 
-// Handle registers a message handler for a specific message type
-func (b *KademliaNode) Handle(msgType string, handler MessageHandler) {
-	b.handlers[msgType] = handler
+// Handle registers a message handler for a specific message type, always online
+func (kn *KademliaNode) Handle(msgType string, handler MessageHandler) {
+	kn.handlers[msgType] = handler
+}
+
+func (kn *KademliaNode) TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan tempHandlers.ContactsWithId, valueCh chan string) {
+	println("TempHandle called with msgType:", msgType, " msgId:", msgId)
+	kn.tempHandlers[tempHandlerKey{msgType: msgType, msgId: msgId, contactCh: contactCh, valueCh: valueCh}] = handler
 }
 
 // Close shuts down the Kademlia node
@@ -225,9 +263,119 @@ func (b *KademliaNode) send(to network.Address, msgType string, data []byte, mes
 
 func (kn *KademliaNode) SendPingMessage(to network.Address) error {
 
-	return kn.send(to, "PING", []byte("ping"), kademliaID.NewRandomKademliaID())
+	return kn.send(to, PING, []byte("ping"), kademliaID.NewRandomKademliaID())
 }
 
 func (kn *KademliaNode) SendPongMessage(to network.Address, messageID *kademliaID.KademliaID) error {
-	return kn.send(to, "PONG", []byte("pong"), messageID)
+	return kn.send(to, PONG, []byte("pong"), messageID)
+}
+
+func (kn *KademliaNode) LookupContact(targetID *kademliaID.KademliaID) *kademliaContact.Contact {
+	res := kn.lookupContact(targetID)
+	return res
+}
+
+func (kn *KademliaNode) SendFindNode(to network.Address, messageID *kademliaID.KademliaID) error {
+	return kn.send(to, FIND_NODE_REQUEST, []byte("find_node"), messageID)
+}
+
+func (kn *KademliaNode) SendFindNodeResponse(to network.Address, contacts []kademliaContact.Contact, messageID *kademliaID.KademliaID) error {
+	// Serialize contacts to bytes
+	data, err := json.Marshal(contacts)
+	if err != nil {
+		return err
+	}
+	return kn.send(to, FIND_NODE_RESPONSE, data, messageID)
+}
+
+func (kn *KademliaNode) lookupContact(targetID *kademliaID.KademliaID) *kademliaContact.Contact {
+	shortlist := kn.routingTable.FindClosestContacts(targetID, kademliaBucket.GetBucketSize())
+
+	return iterativeFindNode(kn, targetID, &shortlist)
+}
+
+func iterativeFindNode(kn *KademliaNode, targetID *kademliaID.KademliaID, shortlist *[]kademliaContact.Contact) *kademliaContact.Contact {
+	if len(*shortlist) == 0 {
+		println("Shortlist is empty, returning nil")
+		return nil
+	}
+	closestNode := (*shortlist)[0]
+	for {
+		// Send FIND_NODE to the closest node
+		// Update shortlist with new contacts
+		// Check if closest node has changed, if not fetch 3 more nodes from shortlist
+		// Stop if we have found the node or we have queried all nodes in the shortlist
+
+		//Get alpha from env variables and parse as a positive int
+		//If not set, default to 3
+		//If set but not a positive int, log a warning and default to 3
+		alpha := 3
+		if val, err := strconv.Atoi(os.Getenv("ALPHA")); err == nil && val > 0 {
+			alpha = val
+		} else {
+			log.Warn("ALPHA not set or invalid, defaulting to 3")
+		}
+
+		messageIDs := []*kademliaID.KademliaID{kademliaID.NewRandomKademliaID(), kademliaID.NewRandomKademliaID(), kademliaID.NewRandomKademliaID()}
+
+		contactChs := make([]chan tempHandlers.ContactsWithId, alpha)
+		for i := range contactChs {
+			contactChs[i] = make(chan tempHandlers.ContactsWithId, 1)
+		}
+
+		for i, id := range messageIDs {
+
+			kn.TempHandle(FIND_NODE_RESPONSE, id, tempHandlers.FindNodeResponseTempHandler, contactChs[i], nil)
+		}
+
+		// Send FIND_NODE to the three closest nodes concurrently
+
+		contactsToQuery := []kademliaContact.Contact{}
+		for i := 0; i < alpha && i < len(*shortlist); i++ {
+			contactsToQuery = append(contactsToQuery, (*shortlist)[i])
+		}
+		var wg sync.WaitGroup
+		wg.Add(len(contactsToQuery))
+
+		for i, contact := range contactsToQuery {
+			go func() {
+				defer wg.Done()
+				kn.SendFindNode(contact.GetNetworkAddress(), messageIDs[i]) // Use appropriate message ID
+			}()
+		}
+		wg.Wait()
+
+		// Check channels for new contacts
+		for i, ch := range contactChs {
+			go func() {
+				select {
+				case data := <-ch:
+					// Delete from messageIDs the messageID that was done
+					for j, id := range messageIDs {
+						if *id == *data.MsgId {
+							messageIDs = append(messageIDs[:j], messageIDs[j+1:]...)
+							break
+						}
+					}
+					if i == 3 {
+						break
+					}
+				case <-time.After(30 * time.Second):
+					for j, id := range messageIDs {
+						if *id == *messageIDs[i] {
+							close(ch)
+							messageIDs = append(messageIDs[:j], messageIDs[j+1:]...)
+							break
+						}
+					}
+
+				}
+				close(ch)
+			}()
+
+		}
+		break
+	}
+
+	return &closestNode
 }

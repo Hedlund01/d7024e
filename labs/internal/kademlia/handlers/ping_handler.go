@@ -5,8 +5,8 @@ import (
 	"d7024e/pkg/network"
 )
 
-func PingHandler(msg *network.Message, kn kademlia.IKademliaNode) error {
-	err := kn.SendPongMessage(msg.From, msg.MessageID)
+func PingHandler(msg *network.Message, node kademlia.IKademliaNode) error {
+	err := node.SendPongMessage(msg.From, msg.MessageID)
 	if err != nil {
 		return err
 	}
