@@ -1,7 +1,6 @@
-package handlers
+package kademlia
 
 import (
-	"d7024e/internal/kademlia"
 	kademliaID "d7024e/internal/kademlia/id"
 	mock "d7024e/internal/mock"
 	net "d7024e/pkg/network"
@@ -13,14 +12,14 @@ import (
 
 func TestPongHandler(t *testing.T) {
 	network := mock.NewMockNetwork()
-	nodeA, err := kademlia.NewKademliaNode(network, net.Address{
+	nodeA, err := NewKademliaNode(network, net.Address{
 		IP:   "127.0.0.1",
 		Port: 8001,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create nodeA: %v", err)
 	}
-	nodeB, err := kademlia.NewKademliaNode(network, net.Address{
+	nodeB, err := NewKademliaNode(network, net.Address{
 		IP:   "172.0.0.1",
 		Port: 8002,
 	})
@@ -31,12 +30,12 @@ func TestPongHandler(t *testing.T) {
 	done := make(chan net.Message, 1)
 
 	// Set up handlers
-	nodeA.Handle("PING", func(msg *net.Message, node kademlia.IKademliaNode) error {
+	nodeA.Handle("PING", func(msg *net.Message, node IKademliaNode) error {
 		// When nodeA receives a PING, it should send a PONG back
 		return node.SendPongMessage(msg.From, msg.MessageID)
 	})
 
-	nodeB.Handle("PONG", func(msg *net.Message, node kademlia.IKademliaNode) error {
+	nodeB.Handle("PONG", func(msg *net.Message, node IKademliaNode) error {
 		// When nodeB receives a PONG, capture it for testing
 		done <- *msg
 		return PongHandler(msg, node)
@@ -61,14 +60,14 @@ func TestPongHandler(t *testing.T) {
 
 func TestDoublePong(t *testing.T) {
 	network := mock.NewMockNetwork()
-	nodeA, err := kademlia.NewKademliaNode(network, net.Address{
+	nodeA, err := NewKademliaNode(network, net.Address{
 		IP:   "127.0.0.1",
 		Port: 8001,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create nodeA: %v", err)
 	}
-	nodeB, err := kademlia.NewKademliaNode(network, net.Address{
+	nodeB, err := NewKademliaNode(network, net.Address{
 		IP:   "172.0.0.1",
 		Port: 8002,
 	})
@@ -79,12 +78,12 @@ func TestDoublePong(t *testing.T) {
 	done := make(chan net.Message, 2)
 
 	// Set up handlers
-	nodeA.Handle("PING", func(msg *net.Message, node kademlia.IKademliaNode) error {
+	nodeA.Handle("PING", func(msg *net.Message, node IKademliaNode) error {
 		// When nodeA receives a PING, it should send a PONG back
 		return node.SendPongMessage(msg.From, msg.MessageID)
 	})
 
-	nodeB.Handle("PONG", func(msg *net.Message, node kademlia.IKademliaNode) error {
+	nodeB.Handle("PONG", func(msg *net.Message, node IKademliaNode) error {
 		// When nodeB receives a PONG, capture it for testing
 		done <- *msg
 		return PongHandler(msg, node)

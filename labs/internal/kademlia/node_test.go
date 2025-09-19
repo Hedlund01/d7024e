@@ -1,12 +1,13 @@
 package kademlia
 
 import (
-	kademliaID "d7024e/internal/kademlia/id"
-	"d7024e/internal/mock"
-	net "d7024e/pkg/network"
 	"fmt"
 	"testing"
 	"time"
+
+	kademliaID "d7024e/internal/kademlia/id"
+	"d7024e/internal/mock"
+	net "d7024e/pkg/network"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -121,8 +122,62 @@ func TestSimpleIterativeNodeLookup(t *testing.T) {
 	nodeC.Close()
 }
 
-// 	// Create network and nodes
-// 	network := mock.NewMockNetwork()
+func TestNodeJoin(t *testing.T) {
+	network := mock.NewMockNetwork()
+
+	// Create n new nodes and have them join the network via the root node
+	n := 5
+	nodes := make([]IKademliaNode, n)
+	for i := 0; i < n; i++ {
+		port := 8081 + i
+		node, err := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: port})
+		if err != nil {
+			t.Fatalf("Failed to create node %d: %v", i, err)
+		}
+		nodes[i] = node
+	}
+
+	// Start all nodes
+	for _, node := range nodes {
+		node.Start()
+	}
+
+	// Register Ping, Pong, FindNode handlers for root node
+	for node := range nodes {
+		nodes[node].Handle(PING, PingHandler)
+		nodes[node].Handle(PONG, PongHandler)
+		nodes[node].Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+	}
+
+	// Have each node join the network via the root node
+	rootNode := nodes[0]
+	for i, node := range nodes {
+		for j := 0; j < n; j++ {
+			if i != j {
+				node.SendPingMessage(nodes[j].Address())
+			}
+		}
+	}
+
+	time.Sleep(5 * time.Second)
+
+	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000})
+	newNode.Start()
+	newNode.Handle(PING, PingHandler)
+	newNode.Handle(PONG, PongHandler)
+	newNode.Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+	newNode.SendPingMessage(rootNode.Address())
+	time.Sleep(2 * time.Second)
+	newNode.LookupContact(newNode.GetRoutingTable().me.ID)
+	time.Sleep(5 * time.Second)
+
+	assert.Equal(t, n, newNode.GetRoutingTable().buckets[0].Len(), "Expected bucket 0 to have n contacts")
+	// Stop all nodes
+	for _, node := range nodes {
+		node.Close()
+	}
+}
+
 // 	alice, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080})
 // 	bob, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8081})
 

@@ -3,7 +3,6 @@ package kademlia
 import (
 	kademliaBucket "d7024e/internal/kademlia/bucket"
 	kademliaContact "d7024e/internal/kademlia/contact"
-	"d7024e/internal/kademlia/handlers/tempHandlers"
 	kademliaID "d7024e/internal/kademlia/id"
 	"d7024e/pkg/network"
 	"encoding/json"
@@ -37,6 +36,11 @@ type IKademliaNode interface {
 	send(to network.Address, msgType string, data []byte, messageID *kademliaID.KademliaID) error
 	SendPingMessage(to network.Address) error
 	SendPongMessage(to network.Address, messageID *kademliaID.KademliaID) error
+	SendFindNode(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error
+	SendFindNodeResponse(to network.Address, contacts []kademliaContact.Contact, messageID *kademliaID.KademliaID) error
+	LookupContact(targetID *kademliaID.KademliaID) *kademliaContact.Contact
+
+	TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan []kademliaContact.Contact, valueCh chan string)
 
 	Address() network.Address
 
@@ -312,8 +316,12 @@ func (kn *KademliaNode) LookupContact(targetID *kademliaID.KademliaID) *kademlia
 	return res
 }
 
-func (kn *KademliaNode) SendFindNode(to network.Address, messageID *kademliaID.KademliaID) error {
-	return kn.send(to, FIND_NODE_REQUEST, []byte("find_node"), messageID)
+func (kn *KademliaNode) SendFindNode(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error {
+	payload, err := json.Marshal(id)
+	if err != nil {
+		return err
+	}
+	return kn.send(to, FIND_NODE_REQUEST, payload, messageID)
 }
 
 func (kn *KademliaNode) SendFindNodeResponse(to network.Address, contacts []kademliaContact.Contact, messageID *kademliaID.KademliaID) error {
@@ -370,9 +378,9 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 				contactCh := make(chan []kademliaContact.Contact, alpha)
 				defer close(contactCh)
 
-				kn.TempHandle(FIND_NODE_RESPONSE, messageID, tempHandlers.FindNodeResponseTempHandler, contactCh, nil)
+				kn.TempHandle(FIND_NODE_RESPONSE, messageID, FindNodeResponseTempHandler, contactCh, nil)
 
-				err := kn.SendFindNode(contact.GetNetworkAddress(), messageID)
+				err := kn.SendFindNode(contact.GetNetworkAddress(), messageID, targetID)
 				if err != nil {
 					log.Error("Failed to send FindNode in iterativeFindNode, error: ", err)
 				}
