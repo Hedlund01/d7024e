@@ -1,26 +1,30 @@
-package kademlia
+package kademliaContact
 
 import (
+	kademliaID "d7024e/internal/kademlia/id"
+	"d7024e/pkg/network"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 // Contact definition
 // stores the KademliaID, the ip address and the distance
 type Contact struct {
-	ID       *KademliaID
+	ID       *kademliaID.KademliaID
 	Address  string
-	distance *KademliaID
+	distance *kademliaID.KademliaID
 }
 
 // NewContact returns a new instance of a Contact
-func NewContact(id *KademliaID, address string) Contact {
+func NewContact(id *kademliaID.KademliaID, address string) Contact {
 	return Contact{id, address, nil}
 }
 
-// CalcDistance calculates the distance to the target and 
+// CalcDistance calculates the distance to the target and
 // fills the contacts distance field
-func (contact *Contact) CalcDistance(target *KademliaID) {
+func (contact *Contact) CalcDistance(target *kademliaID.KademliaID) {
 	contact.distance = contact.ID.CalcDistance(target)
 }
 
@@ -32,6 +36,18 @@ func (contact *Contact) Less(otherContact *Contact) bool {
 // String returns a simple string representation of a Contact
 func (contact *Contact) String() string {
 	return fmt.Sprintf(`contact("%s", "%s")`, contact.ID, contact.Address)
+}
+
+func (contact *Contact) GetNetworkAddress() network.Address {
+	ipPort := strings.Split(contact.Address, ":")
+	port, err := strconv.Atoi(ipPort[1])
+	if err != nil {
+		port = 0 // or handle error as needed
+	}
+	return network.Address{
+		IP:   ipPort[0],
+		Port: port,
+	}
 }
 
 // ContactCandidates definition
@@ -66,7 +82,7 @@ func (candidates *ContactCandidates) Swap(i, j int) {
 	candidates.contacts[i], candidates.contacts[j] = candidates.contacts[j], candidates.contacts[i]
 }
 
-// Less returns true if the Contact at index i is smaller than 
+// Less returns true if the Contact at index i is smaller than
 // the Contact at index j
 func (candidates *ContactCandidates) Less(i, j int) bool {
 	return candidates.contacts[i].Less(&candidates.contacts[j])
