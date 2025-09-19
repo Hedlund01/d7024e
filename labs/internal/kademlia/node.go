@@ -355,9 +355,6 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 
 	closest := currentClosest{contact: list.queue[0]}
 
-	var wg sync.WaitGroup
-	wg.Add(alpha)
-
 	listCh := make(chan kademliaContact.Contact, alpha)
 
 	// Start the go rutines that will consume the shortlist and send out FIND_NODE requests
@@ -366,7 +363,6 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 			for {
 				contact, ok := <-listCh
 				if !ok {
-					wg.Done()
 					return
 				}
 				activeQueries++
@@ -402,18 +398,19 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 
 	for {
 		closest.mu.RLock()
-		if closest.contact.ID.Equals(targetID) {
+		isTarget := closest.contact.ID.Equals(targetID)
+		closest.mu.RUnlock()
+		if isTarget {
+			close(listCh)
 			return &closest.contact
 		}
-		closest.mu.RUnlock()
-
+		
 		if activeQueries < alpha && len(list.queue) > 0 {
 			list.mu.Lock()
 			listCh <- list.queue[0]
 			list.queue = list.queue[1:]
 			list.mu.Unlock()
 		}
-
 	}
 }
 
