@@ -1,7 +1,6 @@
-package handlers
+package kademlia
 
 import (
-	"d7024e/internal/kademlia"
 	mock "d7024e/internal/mock"
 	net "d7024e/pkg/network"
 	"testing"
@@ -11,14 +10,14 @@ import (
 
 func TestPingHandler(t *testing.T) {
 	network := mock.NewMockNetwork()
-	nodeA, err := kademlia.NewKademliaNode(network, net.Address{
+	nodeA, err := NewKademliaNode(network, net.Address{
 		IP:   "127.0.0.1",
 		Port: 8001,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create nodeA: %v", err)
 	}
-	nodeB, err := kademlia.NewKademliaNode(network, net.Address{
+	nodeB, err := NewKademliaNode(network, net.Address{
 		IP:   "172.0.0.1",
 		Port: 8002,
 	})
@@ -30,7 +29,7 @@ func TestPingHandler(t *testing.T) {
 
 	nodeA.Handle("PING", PingHandler)
 
-	nodeB.Handle("PONG", func(msg *net.Message, node kademlia.IKademliaNode) error {
+	nodeB.Handle("PONG", func(msg *net.Message, node IKademliaNode) error {
 		t.Log("Received PONG")
 		pongChannel <- *msg
 		return nil

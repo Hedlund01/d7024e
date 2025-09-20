@@ -1,11 +1,10 @@
-package handlers
+package kademlia
 
 import (
-	"d7024e/internal/kademlia"
 	"d7024e/pkg/network"
 )
 
-func PingHandler(msg *network.Message, node kademlia.IKademliaNode) error {
+func PingHandler(msg *network.Message, node IKademliaNode) error {
 	err := node.SendPongMessage(msg.From, msg.MessageID)
 	if err != nil {
 		return err

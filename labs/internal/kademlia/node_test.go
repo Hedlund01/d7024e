@@ -1,12 +1,15 @@
 package kademlia
 
 import (
-	kademliaID "d7024e/internal/kademlia/id"
 	"d7024e/internal/mock"
-	net "d7024e/pkg/network"
 	"fmt"
 	"testing"
 	"time"
+
+	kademliaContact "d7024e/internal/kademlia/contact"
+	kademliaID "d7024e/internal/kademlia/id"
+
+	net "d7024e/pkg/network"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -112,17 +115,77 @@ func TestSimpleIterativeNodeLookup(t *testing.T) {
 
 	t.Logf("Node A looked up contact: %v", nodeAContactReturned)
 
+	closestContact := nodeAContactReturned.GetClosestContact()
+
 	assert.NotNil(t, nodeAContactReturned, "Expected contact to be found")
-	assert.Equal(t, nodeC.address.Port, nodeAContactReturned.GetNetworkAddress().Port, "Expected found contact port to match")
-	assert.Equal(t, nodeC.GetRoutingTable().me.ID.String(), nodeAContactReturned.ID.String(), "Expected found contact ID to match")
+	assert.Equal(t, nodeC.address.Port, closestContact.GetNetworkAddress().Port, "Expected found contact port to match")
+	assert.Equal(t, nodeC.GetRoutingTable().me.ID.String(), closestContact.ID.String(), "Expected found contact ID to match")
 
 	nodeA.Close()
 	nodeB.Close()
 	nodeC.Close()
 }
 
-// 	// Create network and nodes
-// 	network := mock.NewMockNetwork()
+func TestNodeJoin(t *testing.T) {
+	network := mock.NewMockNetwork()
+
+	// Create n new nodes and have them join the network via the root node
+	n := 5
+	nodes := make([]IKademliaNode, n)
+	for i := 0; i < n; i++ {
+		port := 8081 + i
+		node, err := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: port})
+		if err != nil {
+			t.Fatalf("Failed to create node %d: %v", i, err)
+		}
+		nodes[i] = node
+	}
+
+	// Start all nodes
+	for _, node := range nodes {
+		node.Start()
+	}
+
+	// Register Ping, Pong, FindNode handlers for root node
+	for node := range nodes {
+		nodes[node].Handle(PING, PingHandler)
+		nodes[node].Handle(PONG, PongHandler)
+		nodes[node].Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+	}
+
+	// Have each node join the network via the root node
+	rootNode := nodes[0]
+	for i, node := range nodes {
+		for j := 0; j < n; j++ {
+			if i != j {
+				node.SendPingMessage(nodes[j].Address())
+			}
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+
+	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000})
+	newNode.Start()
+	newNode.Handle(PING, PingHandler)
+	newNode.Handle(PONG, PongHandler)
+	newNode.Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+	contact := kademliaContact.NewContact(rootNode.GetRoutingTable().GetMe().ID, rootNode.Address().String())
+	newNode.Join(&contact)
+
+	contactCount := 0
+	for bucket := range newNode.GetRoutingTable().buckets {
+		contactCount += newNode.GetRoutingTable().buckets[bucket].Len()
+	}
+
+	assert.Greater(t, contactCount, 3, "Expected new node to have contacts in its routing table after joining")
+
+	// Stop all nodes
+	for _, node := range nodes {
+		node.Close()
+	}
+}
+
 // 	alice, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080})
 // 	bob, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8081})
 
