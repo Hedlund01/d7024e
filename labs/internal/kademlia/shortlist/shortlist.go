@@ -219,6 +219,18 @@ func (sl *Shortlist) Len() int {
 	return len(sl.nodes)
 }
 
+func (sl *Shortlist) GetAllProbedContacts() []kademliaContact.Contact {
+	sl.mu.RLock()
+	defer sl.mu.RUnlock()
+	contacts := []kademliaContact.Contact{}
+	for _, node := range sl.nodes {
+		if node.State == Probing {
+			contacts = append(contacts, node.Contact)
+		}
+	}
+	return contacts
+}
+
 func (sl *Shortlist) sort() {
 	sort.Slice(sl.nodes, func(i, j int) bool {
 		return sl.nodes[i].Contact.Less(&sl.nodes[j].Contact)

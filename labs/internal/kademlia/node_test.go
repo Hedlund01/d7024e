@@ -115,9 +115,11 @@ func TestSimpleIterativeNodeLookup(t *testing.T) {
 
 	t.Logf("Node A looked up contact: %v", nodeAContactReturned)
 
+	closestContact := nodeAContactReturned.GetClosestContact()
+
 	assert.NotNil(t, nodeAContactReturned, "Expected contact to be found")
-	assert.Equal(t, nodeC.address.Port, nodeAContactReturned.GetNetworkAddress().Port, "Expected found contact port to match")
-	assert.Equal(t, nodeC.GetRoutingTable().me.ID.String(), nodeAContactReturned.ID.String(), "Expected found contact ID to match")
+	assert.Equal(t, nodeC.address.Port, closestContact.GetNetworkAddress().Port, "Expected found contact port to match")
+	assert.Equal(t, nodeC.GetRoutingTable().me.ID.String(), closestContact.ID.String(), "Expected found contact ID to match")
 
 	nodeA.Close()
 	nodeB.Close()

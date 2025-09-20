@@ -7,6 +7,8 @@ import (
 	"d7024e/internal/kademlia/shortlist"
 	"d7024e/pkg/network"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"sync"
@@ -29,7 +31,7 @@ const (
 // MessageHandler is a function that processes incoming messages
 type MessageHandler func(msg *network.Message, node IKademliaNode) error
 
-type TempMessageHandler func(msg *network.Message, contactCh chan []kademliaContact.Contact, valueCh chan string) error
+type TempMessageHandler func(msg *network.Message, contactCh chan []kademliaContact.Contact, valueCh chan []byte) error
 
 // IKademliaNode defines the interface that all Kademlia node types must implement
 type IKademliaNode interface {
@@ -39,11 +41,13 @@ type IKademliaNode interface {
 	SendPongMessage(to network.Address, messageID *kademliaID.KademliaID) error
 	SendFindNode(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error
 	SendFindNodeResponse(to network.Address, contacts []kademliaContact.Contact, messageID *kademliaID.KademliaID) error
-	LookupContact(targetID *kademliaID.KademliaID) *kademliaContact.Contact
+	LookupContact(targetID *kademliaID.KademliaID) *shortlist.Shortlist
 	Join(contact *kademliaContact.Contact)
-
-	TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan []kademliaContact.Contact, valueCh chan string)
-
+	Store(value any) error
+	StoreValue(data []byte, hash *kademliaID.KademliaID) error
+	GetValue(hash *kademliaID.KademliaID) ([]byte, error)
+	TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan []kademliaContact.Contact, valueCh chan []byte)
+	SendStoreResponse(to network.Address, err error, id *kademliaID.KademliaID) error
 	Address() network.Address
 
 	// Message handling
@@ -88,6 +92,7 @@ type KademliaNode struct {
 	closeMu             sync.RWMutex
 	routingTable        *RoutingTable
 	messageChanMap      messageChanMap
+	storage             map[kademliaID.KademliaID][]byte
 }
 
 type KademliaNodeData struct {
@@ -126,6 +131,7 @@ func NewKademliaNode(network network.Network, addr network.Address) (*KademliaNo
 		closed:              false,
 		routingTable:        routingTable,
 		messageChanMap:      messageChanMap{chMap: make(map[kademliaID.KademliaID]chan kademliaID.KademliaID)},
+		storage:             make(map[kademliaID.KademliaID][]byte),
 	}, nil
 }
 
@@ -237,7 +243,7 @@ func (kn *KademliaNode) Handle(msgType string, handler MessageHandler) {
 	kn.closeMu.Unlock()
 }
 
-func (kn *KademliaNode) TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan []kademliaContact.Contact, valueCh chan string) {
+func (kn *KademliaNode) TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan []kademliaContact.Contact, valueCh chan []byte) {
 	kn.closeMu.Lock()
 	kn.tempHandlers[tempHandlerKey{msgType: msgType, msgId: msgId}] = handler
 	kn.tempHandlerChannels[tempHandlerKey{msgType: msgType, msgId: msgId}] = tempHandlerChannels{contactCh: contactCh, valueCh: valueCh}
@@ -321,14 +327,90 @@ func (kn *KademliaNode) SendPongMessage(to network.Address, messageID *kademliaI
 	return kn.send(to, PONG, []byte("pong"), messageID)
 }
 
-func (kn *KademliaNode) LookupContact(targetID *kademliaID.KademliaID) *kademliaContact.Contact {
-	res := kn.lookupContact(targetID)
-	return res
+func (kn *KademliaNode) LookupContact(targetID *kademliaID.KademliaID) *shortlist.Shortlist {
+	return kn.lookupContact(targetID)
 }
 
 func (kn *KademliaNode) Join(contact *kademliaContact.Contact) {
 	kn.GetRoutingTable().AddContact(*contact)
 	kn.lookupContact(kn.GetRoutingTable().GetMe().ID)
+}
+
+// Store the given data with the given hash in the nodes storage
+func (kn *KademliaNode) StoreValue(data []byte, hash *kademliaID.KademliaID) error {
+	kn.storage[*hash] = data
+	return nil
+}
+
+// Retrieves the value with the given hash from the nodes storage
+func (kn *KademliaNode) GetValue(hash *kademliaID.KademliaID) ([]byte, error) {
+	value, exists := kn.storage[*hash]
+	if !exists {
+		return nil, errors.New("Value not found")
+	}
+	return value, nil
+}
+
+func (kn *KademliaNode) Store(value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	log.WithField("func", "Store").Debugf("Storing value: %s", data)
+	shortlist := kn.lookupContact(kademliaID.NewKademliaID(string(data)))
+	if shortlist == nil {
+		return errors.New("Shortlist is nil, cannot send store value")
+	}
+	errorsCh := make(chan error, len(shortlist.GetAllProbedContacts()))
+	var wg sync.WaitGroup
+	wg.Add(len(shortlist.GetAllProbedContacts()))
+	for _, contact := range shortlist.GetAllProbedContacts() {
+		go kn.sendStore(contact.GetNetworkAddress(), kademliaID.NewKademliaID(string(data)), data, &wg, errorsCh)
+	}
+	wg.Wait()
+
+	allErrors := make([]error, 0)
+	for err := range errorsCh {
+		if err != nil {
+			allErrors = append(allErrors, err)
+		}
+	}
+	return errors.Join(allErrors...)
+}
+
+func (kn *KademliaNode) sendStore(to network.Address, hash *kademliaID.KademliaID, value []byte, wg *sync.WaitGroup, errorsCh chan error) {
+	defer wg.Done()
+	msgId := hash
+	log.WithField("to", to.String()).WithField("msgID", msgId.String()).WithField("func", "sendStore").Debugf("Sending STORE request to %s", to.String())
+
+	valCh := make(chan []byte, 1)
+	kn.TempHandle(STORE_RESPONSE, msgId, StoreResponseTempHandler, nil, valCh)
+
+	select {
+	case result := <-valCh:
+		if string(result) == "OK" {
+			log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Debugf("Received STORE_RESPONSE: %s", result)
+			err := kn.send(to, STORE_REQUEST, value, msgId)
+			if err != nil {
+				log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Errorf("Failed to send STORE request to %s: %v", to.String(), err)
+				errorsCh <- err
+			}
+		} else {
+			log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Errorf("STORE request rejected by %s", to.String())
+			errorsCh <- fmt.Errorf("STORE request rejected by %s", to.String())
+		}
+
+	case <-time.After(30 * time.Second):
+		log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Errorf("Timeout waiting for STORE_RESPONSE")
+		errorsCh <- fmt.Errorf("Timeout waiting for STORE_RESPONSE from %s", to.String())
+	}
+}
+
+func (kn *KademliaNode) SendStoreResponse(to network.Address, err error, id *kademliaID.KademliaID) error {
+	if err != nil {
+		return kn.send(to, STORE_RESPONSE, []byte("REJECT"), id)
+	}
+	return kn.send(to, STORE_RESPONSE, []byte("OK"), id)
 }
 
 func (kn *KademliaNode) SendFindNode(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error {
@@ -348,13 +430,14 @@ func (kn *KademliaNode) SendFindNodeResponse(to network.Address, contacts []kade
 	return kn.send(to, FIND_NODE_RESPONSE, data, messageID)
 }
 
-func (kn *KademliaNode) lookupContact(targetID *kademliaID.KademliaID) *kademliaContact.Contact {
+func (kn *KademliaNode) lookupContact(targetID *kademliaID.KademliaID) *shortlist.Shortlist {
 	list := kn.GetRoutingTable().FindClosestContacts(targetID, kademliaBucket.GetBucketSize())
 
 	return iterativeFindNodev2(kn, targetID, &list)
+
 }
 
-func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shortlistParam *[]kademliaContact.Contact) *kademliaContact.Contact {
+func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shortlistParam *[]kademliaContact.Contact) *shortlist.Shortlist {
 	if len(*shortlistParam) == 0 {
 		log.Warn("Shortlist is empty, returning nil")
 		return nil
@@ -410,7 +493,7 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 	for {
 		if list.TargetFound() {
 			close(probeCh)
-			return list.GetClosestContact()
+			return list
 		}
 
 		activeQueries.mu.RLock()
@@ -429,7 +512,7 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 		} else if !list.HasImproved() && noActive {
 			close(probeCh)
 			probeRemaining(list, kn, targetID, alpha)
-			return list.GetClosestContact()
+			return list
 		}
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 )
 
-func FindNodeResponseTempHandler(msg *network.Message, contactCh chan []kademliaContact.Contact, valueCh chan string) error {
+func FindNodeResponseTempHandler(msg *network.Message, contactCh chan []kademliaContact.Contact, valueCh chan []byte) error {
 	contacts := []kademliaContact.Contact{}
 	error := json.Unmarshal(msg.Payload, &contacts)
 	contactCh <- contacts
