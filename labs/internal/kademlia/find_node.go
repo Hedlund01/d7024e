@@ -10,7 +10,6 @@ import (
 func FindNodeResponseTempHandler(msg *network.Message, contactCh chan []kademliaContact.Contact, valueCh chan string) error {
 	contacts := []kademliaContact.Contact{}
 	error := json.Unmarshal(msg.Payload, &contacts)
-	println("FindNodeResponseTempHandler: received contacts:", contacts)
 	contactCh <- contacts
 	return error
 }

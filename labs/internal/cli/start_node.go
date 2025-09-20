@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"d7024e/internal/kademlia"
-	"d7024e/internal/kademlia/handlers"
 	kademliaNetwork "d7024e/internal/kademlia/network"
 	"d7024e/pkg/network"
 	"fmt"
@@ -43,8 +42,8 @@ func startNode() {
 		return
 	}
 
-	node.Handle("PING", handlers.PingHandler)
-	node.Handle("PONG", handlers.PongHandler)
+	node.Handle("PING", kademlia.PingHandler)
+	node.Handle("PONG", kademlia.PongHandler)
 	node.Start()
 
 	addr, error := kademliaNetwork.ResolveTasks("KademliaStack_kademliaNodes", 8000)

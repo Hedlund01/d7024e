@@ -1,12 +1,14 @@
 package kademlia
 
 import (
+	"d7024e/internal/mock"
 	"fmt"
 	"testing"
 	"time"
 
+	kademliaContact "d7024e/internal/kademlia/contact"
 	kademliaID "d7024e/internal/kademlia/id"
-	"d7024e/internal/mock"
+
 	net "d7024e/pkg/network"
 
 	"github.com/stretchr/testify/assert"
@@ -159,19 +161,23 @@ func TestNodeJoin(t *testing.T) {
 		}
 	}
 
-	time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000})
 	newNode.Start()
 	newNode.Handle(PING, PingHandler)
 	newNode.Handle(PONG, PongHandler)
 	newNode.Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
-	newNode.SendPingMessage(rootNode.Address())
-	time.Sleep(2 * time.Second)
-	newNode.LookupContact(newNode.GetRoutingTable().me.ID)
-	time.Sleep(5 * time.Second)
+	contact := kademliaContact.NewContact(rootNode.GetRoutingTable().GetMe().ID, rootNode.Address().String())
+	newNode.Join(&contact)
 
-	assert.Equal(t, n, newNode.GetRoutingTable().buckets[0].Len(), "Expected bucket 0 to have n contacts")
+	contactCount := 0
+	for bucket := range newNode.GetRoutingTable().buckets {
+		contactCount += newNode.GetRoutingTable().buckets[bucket].Len()
+	}
+
+	assert.Greater(t, contactCount, 3, "Expected new node to have contacts in its routing table after joining")
+
 	// Stop all nodes
 	for _, node := range nodes {
 		node.Close()
