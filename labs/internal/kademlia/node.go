@@ -40,6 +40,7 @@ type IKademliaNode interface {
 	SendFindNode(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error
 	SendFindNodeResponse(to network.Address, contacts []kademliaContact.Contact, messageID *kademliaID.KademliaID) error
 	LookupContact(targetID *kademliaID.KademliaID) *kademliaContact.Contact
+	Join(contact *kademliaContact.Contact)
 
 	TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan []kademliaContact.Contact, valueCh chan string)
 

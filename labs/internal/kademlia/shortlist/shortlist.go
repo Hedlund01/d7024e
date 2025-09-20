@@ -35,6 +35,7 @@ type Shortlist struct {
 func NewShortlist(target *kademliaID.KademliaID, k int, alpha int) *Shortlist {
 	return &Shortlist{
 		nodes:       make([]ShortlistNode, 0),
+		nodeMap:     make(map[kademliaID.KademliaID]bool),
 		target:      target,
 		k:           k,
 		alpha:       alpha,
@@ -54,6 +55,7 @@ func (sl *Shortlist) AddContact(contact kademliaContact.Contact) {
 	}
 
 	sl.nodes = append(sl.nodes, node)
+	sl.nodeMap[*contact.ID] = true
 	sl.sort()
 
 	if len(sl.nodes) > sl.k {
@@ -82,13 +84,13 @@ func (sl *Shortlist) AddContacts(contacts []kademliaContact.Contact) {
 				break
 			}
 		}
-
-		if !duplicate {
+		if !duplicate && !sl.nodeMap[*contact.ID] {
 			contact.CalcDistance(sl.target)
 			sl.nodes = append(sl.nodes, ShortlistNode{
 				Contact: contact,
 				State:   Unprobed,
 			})
+			sl.nodeMap[*contact.ID] = true
 		}
 	}
 
