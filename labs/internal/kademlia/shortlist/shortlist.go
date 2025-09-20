@@ -14,6 +14,7 @@ const (
 	Unprobed NodeState = iota
 	Probing
 	Failed
+	Succeeded
 )
 
 type ShortlistNode struct {
@@ -73,7 +74,6 @@ func (sl *Shortlist) AddContacts(contacts []kademliaContact.Contact) {
 	for _, contact := range contacts {
 		if contact.ID.Equals(sl.target) {
 			sl.targetFound = true
-			continue
 		}
 
 		// Check for duplicates
@@ -121,6 +121,7 @@ func (sl *Shortlist) GetUnprobed() (kademliaContact.Contact, error) {
 	return kademliaContact.Contact{}, errors.New("no unprobed contacts available")
 }
 
+
 func (sl *Shortlist) GetAllUnprobed() ([]kademliaContact.Contact, error) {
 	sl.mu.Lock()
 	defer sl.mu.Unlock()
@@ -146,6 +147,18 @@ func (sl *Shortlist) MarkFailed(contact kademliaContact.Contact) {
 	for i := range sl.nodes {
 		if sl.nodes[i].Contact.ID.Equals(contact.ID) {
 			sl.nodes[i].State = Failed
+			break
+		}
+	}
+}
+
+func (sl *Shortlist) MarkSucceeded(contact kademliaContact.Contact) {
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+
+	for i := range sl.nodes {
+		if sl.nodes[i].Contact.ID.Equals(contact.ID) {
+			sl.nodes[i].State = Succeeded
 			break
 		}
 	}

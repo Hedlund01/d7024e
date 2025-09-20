@@ -18,14 +18,16 @@ import (
 )
 
 const (
-	FIND_NODE_REQUEST  string = "FIND_NODE"
-	FIND_NODE_RESPONSE string = "FIND_NODE_RESPONSE"
-	STORE_REQUEST      string = "STORE"
-	STORE_RESPONSE     string = "STORE_RESPONSE"
-	LOOKUP_REQUEST     string = "LOOKUP"
-	LOOKUP_RESPONSE    string = "LOOKUP_RESPONSE"
-	PING               string = "PING"
-	PONG               string = "PONG"
+	FIND_NODE_REQUEST   string = "FIND_NODE"
+	FIND_NODE_RESPONSE  string = "FIND_NODE_RESPONSE"
+	STORE_REQUEST       string = "STORE"
+	STORE_RESPONSE      string = "STORE_RESPONSE"
+	LOOKUP_REQUEST      string = "LOOKUP"
+	LOOKUP_RESPONSE     string = "LOOKUP_RESPONSE"
+	PING                string = "PING"
+	PONG                string = "PONG"
+	FIND_VALUE_REQUEST  string = "FIND_VALUE"
+	FIND_VALUE_RESPONSE string = "FIND_VALUE_RESPONSE"
 )
 
 // MessageHandler is a function that processes incoming messages
@@ -49,6 +51,9 @@ type IKademliaNode interface {
 	TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan []kademliaContact.Contact, valueCh chan []byte)
 	SendStoreResponse(to network.Address, err error, id *kademliaID.KademliaID) error
 	Address() network.Address
+	SendFindValueResponse(to network.Address, value []byte, messageID *kademliaID.KademliaID) error
+	FindNode(id *kademliaID.KademliaID) (*kademliaContact.Contact, error)
+	FindValue(id *kademliaID.KademliaID) ([]byte, error)
 
 	// Message handling
 	Handle(msgType string, handler MessageHandler)
@@ -71,7 +76,7 @@ type tempHandlerKey struct {
 
 type tempHandlerChannels struct {
 	contactCh chan []kademliaContact.Contact
-	valueCh   chan string
+	valueCh   chan []byte
 }
 
 // Type for value with ID
@@ -103,12 +108,6 @@ type KademliaNodeData struct {
 type messageChanMap struct {
 	mu    sync.RWMutex
 	chMap map[kademliaID.KademliaID]chan kademliaID.KademliaID
-}
-
-// Type for currentClosest node with mutex for concurrent access
-type currentClosest struct {
-	mu      sync.RWMutex
-	contact kademliaContact.Contact
 }
 
 // NewKademliaNode creates a new Kademlia node
@@ -336,6 +335,59 @@ func (kn *KademliaNode) Join(contact *kademliaContact.Contact) {
 	kn.lookupContact(kn.GetRoutingTable().GetMe().ID)
 }
 
+func (kn *KademliaNode) FindValue( id *kademliaID.KademliaID) ([]byte, error) {
+	localVal, err := kn.GetValue(id)
+	if err != nil && localVal != nil {
+		return localVal, nil
+	}
+
+	return kn.findValue(id)
+}
+
+func (kn *KademliaNode) findValue(id *kademliaID.KademliaID) ([]byte, error) {
+	log.WithField("func", "FindValue").Debugf("Finding value for ID: %s", id.String())
+	shortlist := kn.lookupContact(id)
+	if shortlist == nil {
+		return nil, errors.New("Shortlist is nil, cannot send find value")
+	}
+	var wg sync.WaitGroup
+	wg.Add(len(shortlist.GetAllProbedContacts()))
+
+	valueCh := make(chan []byte, 1)
+
+	for _, contact := range shortlist.GetAllProbedContacts() {
+		go kn.sendFindValue(contact.GetNetworkAddress(), id, valueCh, &wg)
+	}
+	wg.Wait()
+
+	result := <-valueCh
+
+	return result, nil
+}
+
+func (kn *KademliaNode) sendFindValue(to network.Address, id *kademliaID.KademliaID, valueCh chan []byte, wg *sync.WaitGroup) {
+	defer wg.Done()
+	msgId := id
+	log.WithField("to", to.String()).WithField("msgID", msgId.String()).WithField("func", "sendFindValue").Debugf("Sending FIND_VALUE request to %s", to.String())
+
+	valCh := make(chan []byte, 1)
+	kn.TempHandle(FIND_VALUE_RESPONSE, msgId, FindValueResponseTempHandler, nil, valCh)
+
+	select {
+	case result := <-valCh:
+		log.WithField("msgID", msgId.String()).WithField("func", "sendFindValue").Debugf("Received FIND_VALUE_RESPONSE: %s", result)
+		if result != nil {
+			valueCh <- result
+		}
+	case <-time.After(15 * time.Second):
+		log.WithField("msgID", msgId.String()).WithField("func", "sendFindValue").Errorf("Timeout waiting for FIND_VALUE_RESPONSE")
+	}
+}
+
+func (kn *KademliaNode) SendFindValueResponse(to network.Address, value []byte, messageID *kademliaID.KademliaID) error {
+	return kn.send(to, FIND_VALUE_RESPONSE, value, messageID)
+}
+
 // Store the given data with the given hash in the nodes storage
 func (kn *KademliaNode) StoreValue(data []byte, hash *kademliaID.KademliaID) error {
 	kn.storage[*hash] = data
@@ -351,6 +403,7 @@ func (kn *KademliaNode) GetValue(hash *kademliaID.KademliaID) ([]byte, error) {
 	return value, nil
 }
 
+// Stores the given value on the kademlia network, with the hash of the data as a key
 func (kn *KademliaNode) Store(value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -411,6 +464,14 @@ func (kn *KademliaNode) SendStoreResponse(to network.Address, err error, id *kad
 		return kn.send(to, STORE_RESPONSE, []byte("REJECT"), id)
 	}
 	return kn.send(to, STORE_RESPONSE, []byte("OK"), id)
+}
+
+func (kn *KademliaNode) FindNode(id *kademliaID.KademliaID) (*kademliaContact.Contact, error) {
+	shortlist := kn.lookupContact(id)
+	if shortlist == nil {
+		return nil, errors.New("Shortlist is nil, cannot find node")
+	}
+	return shortlist.GetClosestContact(), nil
 }
 
 func (kn *KademliaNode) SendFindNode(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error {
@@ -480,6 +541,7 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 				case contacts := <-contactCh:
 					close(contactCh)
 					list.AddContacts(contacts)
+					list.MarkSucceeded(contact)
 				case <-time.After(30 * time.Second):
 					list.MarkFailed(contact)
 				}
@@ -497,7 +559,7 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 		}
 
 		activeQueries.mu.RLock()
-		canSendQuery := activeQueries.count <= alpha
+		canSendQuery := activeQueries.count < alpha
 		noActive := activeQueries.count == 0
 		activeQueries.mu.RUnlock()
 		if list.HasUnprobed() && list.HasImproved() && canSendQuery {
@@ -509,7 +571,7 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 			activeQueries.count++
 			activeQueries.mu.Unlock()
 			probeCh <- contact
-		} else if !list.HasImproved() && noActive {
+		} else if !list.HasImproved() && noActive && list.GetProbingCount() == 0 {
 			close(probeCh)
 			probeRemaining(list, kn, targetID, alpha)
 			return list

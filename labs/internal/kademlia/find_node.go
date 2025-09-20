@@ -5,6 +5,7 @@ import (
 	kademliaID "d7024e/internal/kademlia/id"
 	"d7024e/pkg/network"
 	"encoding/json"
+	"fmt"
 )
 
 func FindNodeResponseTempHandler(msg *network.Message, contactCh chan []kademliaContact.Contact, valueCh chan []byte) error {
@@ -21,6 +22,7 @@ func FindNodeRequestHandler(msg *network.Message, node IKademliaNode) error {
 		return err
 	}
 	contacts := node.GetRoutingTable().FindClosestContacts(id, 3)
+	println(fmt.Sprintf("Node %s received find node request from %s for id %s. Responding with %d contacts.", node.GetRoutingTable().me.Address, msg.From.String(), id.String(), len(contacts)))
 	err = node.SendFindNodeResponse(msg.From, contacts, msg.MessageID)
 	if err != nil {
 		return nil
