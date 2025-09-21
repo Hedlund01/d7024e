@@ -2,16 +2,19 @@ name: Go
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'lab*'
   pull_request:
-    branches: [main]
+    branches:
+      - main
+      - 'lab*'
 
 jobs:
-  # Label of the container job
-  runner-job:
+  test:
+    name: Tests (Coverage)
     runs-on: ubuntu-latest
 
-    # Service containers to run with `runner-job`
     steps:
       - uses: actions/checkout@v5
 
@@ -23,9 +26,46 @@ jobs:
              labs/go.sum
 
       - name: Build
-        run: go build ./labs/...
+        run: go build -v ./labs/...
 
-      - name: Test
-        run: go test ./labs/...
+      - name: Run Tests (without race detection)
+        run: go test -v -coverprofile=coverage.out -covermode=atomic ./labs/...
+        env:
+          TZ: Europe/Stockholm
+
+      - name: Upload Coverage to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out
+
+      - name: Generate coverage report
+        run: go tool cover -html=coverage.out -o coverage.html
+
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: coverage.html
+
+  test-race:
+    name: Tests (Race Detection)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'labs/go.mod'
+          cache-dependency-path: |
+             labs/go.sum
+
+      - name: Build
+        run: go build -v ./labs/...
+
+      - name: Run Tests (with race detection)
+        run: go test -v -race ./labs/...
         env:
           TZ: Europe/Stockholm

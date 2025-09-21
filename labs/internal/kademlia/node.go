@@ -45,7 +45,7 @@ type IKademliaNode interface {
 	SendFindNodeResponse(to network.Address, contacts []kademliaContact.Contact, messageID *kademliaID.KademliaID) error
 	LookupContact(targetID *kademliaID.KademliaID) *shortlist.Shortlist
 	Join(contact *kademliaContact.Contact)
-	Store(value any) error
+	Store(value []byte) error
 	StoreValue(data []byte, hash *kademliaID.KademliaID) error
 	GetValue(hash *kademliaID.KademliaID) ([]byte, error)
 	TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan []kademliaContact.Contact, valueCh chan []byte)
@@ -77,12 +77,6 @@ type tempHandlerKey struct {
 type tempHandlerChannels struct {
 	contactCh chan []kademliaContact.Contact
 	valueCh   chan []byte
-}
-
-// Type for value with ID
-type valueWithId struct {
-	value string
-	msgId *kademliaID.KademliaID
 }
 
 // BaseNode provides common functionality that can be embedded
@@ -253,6 +247,19 @@ func (kn *KademliaNode) TempHandle(msgType string, msgId *kademliaID.KademliaID,
 func (kn *KademliaNode) Close() error {
 	kn.closeMu.Lock()
 	kn.closed = true
+
+	// Clean up all message channels to prevent goroutine leaks
+	kn.messageChanMap.mu.Lock()
+	for id, ch := range kn.messageChanMap.chMap {
+		close(ch)
+		delete(kn.messageChanMap.chMap, id)
+	}
+	kn.messageChanMap.mu.Unlock()
+
+	// Clean up temp handlers
+	kn.tempHandlers = make(map[tempHandlerKey]TempMessageHandler)
+	kn.tempHandlerChannels = make(map[tempHandlerKey]tempHandlerChannels)
+
 	kn.closeMu.Unlock()
 	return kn.connection.Close()
 }
@@ -285,9 +292,13 @@ func checkReply(kn *KademliaNode, messageID *kademliaID.KademliaID) {
 	}
 
 	select {
-	case <-msgChan:
+	case _, ok := <-msgChan:
+		if !ok {
+			// Channel was closed, node is shutting down
+			return
+		}
 		log.WithField("msgID", messageID.String()).WithField("func", "checkReply").Debugf("Received reply for message ID")
-	case <-time.After(30 * time.Second):
+	case <-time.After(15 * time.Second):
 		log.WithField("msgID", messageID.String()).WithField("func", "checkReply").Debugf("Timeout waiting for reply for message ID")
 	}
 	kn.messageChanMap.mu.Lock()
@@ -335,7 +346,7 @@ func (kn *KademliaNode) Join(contact *kademliaContact.Contact) {
 	kn.lookupContact(kn.GetRoutingTable().GetMe().ID)
 }
 
-func (kn *KademliaNode) FindValue( id *kademliaID.KademliaID) ([]byte, error) {
+func (kn *KademliaNode) FindValue(id *kademliaID.KademliaID) ([]byte, error) {
 	localVal, err := kn.GetValue(id)
 	if err != nil && localVal != nil {
 		return localVal, nil
@@ -360,18 +371,27 @@ func (kn *KademliaNode) findValue(id *kademliaID.KademliaID) ([]byte, error) {
 	}
 	wg.Wait()
 
-	result := <-valueCh
+	select {
+	case result := <-valueCh:
+		return result, nil
+	case <-time.After(20 * time.Second):
+		return nil, errors.New("timeout waiting for find value response")
+	}
 
-	return result, nil
 }
 
 func (kn *KademliaNode) sendFindValue(to network.Address, id *kademliaID.KademliaID, valueCh chan []byte, wg *sync.WaitGroup) {
 	defer wg.Done()
-	msgId := id
+	msgId := kademliaID.NewRandomKademliaID()
 	log.WithField("to", to.String()).WithField("msgID", msgId.String()).WithField("func", "sendFindValue").Debugf("Sending FIND_VALUE request to %s", to.String())
 
 	valCh := make(chan []byte, 1)
 	kn.TempHandle(FIND_VALUE_RESPONSE, msgId, FindValueResponseTempHandler, nil, valCh)
+	err := kn.send(to, FIND_VALUE_REQUEST, []byte(id.String()), msgId)
+	if err != nil {
+		log.WithField("msgID", msgId.String()).WithField("func", "sendFindValue").Errorf("Failed to send FIND_VALUE request to %s: %v", to.String(), err)
+		return
+	}
 
 	select {
 	case result := <-valCh:
@@ -404,13 +424,10 @@ func (kn *KademliaNode) GetValue(hash *kademliaID.KademliaID) ([]byte, error) {
 }
 
 // Stores the given value on the kademlia network, with the hash of the data as a key
-func (kn *KademliaNode) Store(value any) error {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	log.WithField("func", "Store").Debugf("Storing value: %s", data)
-	shortlist := kn.lookupContact(kademliaID.NewKademliaID(string(data)))
+func (kn *KademliaNode) Store(value []byte) error {
+
+	log.WithField("func", "Store").Debugf("Storing value: %s", string(value))
+	shortlist := kn.lookupContact(kademliaID.NewKademliaID(string(value)))
 	if shortlist == nil {
 		return errors.New("Shortlist is nil, cannot send store value")
 	}
@@ -418,9 +435,14 @@ func (kn *KademliaNode) Store(value any) error {
 	var wg sync.WaitGroup
 	wg.Add(len(shortlist.GetAllProbedContacts()))
 	for _, contact := range shortlist.GetAllProbedContacts() {
-		go kn.sendStore(contact.GetNetworkAddress(), kademliaID.NewKademliaID(string(data)), data, &wg, errorsCh)
+		if contact.ID.Equals(kn.GetRoutingTable().GetMe().ID) { // Skip self, do not send store request RPC to itself
+			wg.Done()
+			continue
+		}
+		go kn.sendStore(contact.GetNetworkAddress(), kademliaID.NewKademliaID(string(value)), value, &wg, errorsCh)
 	}
 	wg.Wait()
+	close(errorsCh)
 
 	allErrors := make([]error, 0)
 	for err := range errorsCh {
@@ -439,21 +461,23 @@ func (kn *KademliaNode) sendStore(to network.Address, hash *kademliaID.KademliaI
 	valCh := make(chan []byte, 1)
 	kn.TempHandle(STORE_RESPONSE, msgId, StoreResponseTempHandler, nil, valCh)
 
+	err := kn.send(to, STORE_REQUEST, value, msgId)
+	if err != nil {
+		log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Errorf("Failed to send STORE request to %s: %v", to.String(), err)
+		errorsCh <- err
+	}
+
 	select {
 	case result := <-valCh:
 		if string(result) == "OK" {
 			log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Debugf("Received STORE_RESPONSE: %s", result)
-			err := kn.send(to, STORE_REQUEST, value, msgId)
-			if err != nil {
-				log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Errorf("Failed to send STORE request to %s: %v", to.String(), err)
-				errorsCh <- err
-			}
+
 		} else {
 			log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Errorf("STORE request rejected by %s", to.String())
 			errorsCh <- fmt.Errorf("STORE request rejected by %s", to.String())
 		}
 
-	case <-time.After(30 * time.Second):
+	case <-time.After(15 * time.Second):
 		log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Errorf("Timeout waiting for STORE_RESPONSE")
 		errorsCh <- fmt.Errorf("Timeout waiting for STORE_RESPONSE from %s", to.String())
 	}

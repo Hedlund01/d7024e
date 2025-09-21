@@ -2,7 +2,6 @@ package kademlia
 
 import (
 	"d7024e/internal/mock"
-	"fmt"
 	"testing"
 	"time"
 
@@ -11,11 +10,17 @@ import (
 
 	net "d7024e/pkg/network"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/stretchr/testify/assert"
 )
 
+func Init(){
+	log.SetLevel(log.DebugLevel)
+}
+
 func TestRPCValiadtion(t *testing.T) {
-	println("Starting TestRPCValidation")
+	log.WithField("func", "TestRPCValidation").Info("Starting TestRPCValidation")
 	network := mock.NewMockNetwork()
 	alice, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080})
 	bob, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8081})
@@ -45,7 +50,7 @@ func TestRPCValiadtion(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		select {
 		case msg := <-done:
-			fmt.Printf("Extracted message from done channel: %s\n", msg.Payload)
+			log.WithField("payload", string(msg.Payload)).Debug("Extracted message from done channel")
 			messagesReceived++
 		case <-time.After(1000 * time.Millisecond):
 			// Timeout waiting for message, break out of loop
@@ -60,6 +65,7 @@ func TestRPCValiadtion(t *testing.T) {
 }
 
 func TestSimpleIterativeNodeLookup(t *testing.T) {
+	log.WithField("func", "TestSimpleIterativeNodeLookup").Info("Starting TestSimpleIterativeNodeLookup")
 	network := mock.NewMockNetwork()
 	nodeA, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080})
 	nodeB, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8081})
@@ -127,6 +133,7 @@ func TestSimpleIterativeNodeLookup(t *testing.T) {
 }
 
 func TestNodeJoin(t *testing.T) {
+	log.WithField("func", "TestNodeJoin").Info("Starting TestNodeJoin")
 	network := mock.NewMockNetwork()
 
 	// Create n new nodes and have them join the network via the root node
@@ -184,9 +191,11 @@ func TestNodeJoin(t *testing.T) {
 	for _, node := range nodes {
 		node.Close()
 	}
+	newNode.Close()
 }
 
 func TestFindNode_KnowsTheNode(t *testing.T) {
+	log.WithField("func", "TestFindNode_KnowsTheNode").Info("Starting TestFindNode_KnowsTheNode")
 	mockNetwork := mock.NewMockNetwork()
 
 	n := 2
@@ -243,6 +252,7 @@ func TestFindNode_KnowsTheNode(t *testing.T) {
 }
 
 func TestFindNode_DontKnowTheNode(t *testing.T) {
+	log.WithField("func", "TestFindNode_DontKnowTheNode").Info("Starting TestFindNode_DontKnowTheNode")
 	mockNetwork := mock.NewMockNetwork()
 
 	n := 5
@@ -312,10 +322,12 @@ func TestFindNode_DontKnowTheNode(t *testing.T) {
 	for _, node := range nodes {
 		node.Close()
 	}
+	testNode.Close()
 
 }
 
 func TestGetAndStoreValue(t *testing.T) {
+	log.WithField("func", "TestGetAndStoreValue").Info("Starting TestGetAndStoreValue")
 	mockNetwork := mock.NewMockNetwork()
 	node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: 8081})
 	assert.NoErrorf(t, err, "Failed to create node: %v", err)
@@ -341,6 +353,7 @@ func TestGetAndStoreValue(t *testing.T) {
 }
 
 func TestStore(t *testing.T) {
+	log.WithField("func", "TestStore").Info("Starting TestStore")
 	mockNetwork := mock.NewMockNetwork()
 
 	n := 5
@@ -367,6 +380,8 @@ func TestStore(t *testing.T) {
 		nodes[node].Handle(PING, PingHandler)
 		nodes[node].Handle(PONG, PongHandler)
 		nodes[node].Handle(FIND_VALUE_REQUEST, FindValueRequestHandler)
+		nodes[node].Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+		nodes[node].Handle(STORE_REQUEST, StoreRequestHandler)
 	}
 
 	// Have each node join the network via pinging each other
@@ -384,6 +399,7 @@ func TestStore(t *testing.T) {
 
 	value := []byte("1234567890abcdef1234567890abcdef12345678")
 	key := kademliaID.NewKademliaID(string(value)) // Must be greater than 20 bytes
+	log.WithField("func", "TestStore").WithField("value", string(value)).WithField("key", key.String()).Debug("Storing value")
 
 	err := rootNode.Store(value)
 	assert.NoErrorf(t, err, "Failed to store value: %v", err)
@@ -392,10 +408,86 @@ func TestStore(t *testing.T) {
 
 	// Retrieve the value
 
-	//TODO: Write the find value function that recives the value from the network
-	retrievedValue, err := rootNode.FindValue(key)
+	var foundValue []byte
+	for i, node := range nodes {
+		retrievedValue, err := node.GetValue(key)
+		log.WithField("func", "TestStore").WithField("nodeIndex", i).WithField("err", err).Debugf("Checking node %d for stored value", i)
+		if err == nil && retrievedValue != nil {
+			foundValue = retrievedValue
+			break
+		}
+	}
+
+	assert.NotNil(t, foundValue, "Expected at least one node to store the value")
+	assert.Equalf(t, value, foundValue, "Expected found value to match")
+
+	// Stop all nodes
+	for _, node := range nodes {
+		node.Close()
+	}
+}
+
+func TestFindValue(t *testing.T) {
+	log.WithField("func", "TestFindValue").Info("Starting TestFindValue")
+	log.SetLevel(log.DebugLevel)
+	mockNetwork := mock.NewMockNetwork()
+
+	n := 5
+	nodes := make([]IKademliaNode, n)
+	for i := 0; i < n; i++ {
+		port := 8081 + i
+		node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: port})
+		if err != nil {
+			t.Fatalf("Failed to create node %d: %v", i, err)
+		}
+		nodes[i] = node
+		t.Logf("Created node %d: %v", i, node.GetRoutingTable().me.ID.String())
+	}
+
+	// Start all nodes
+	for _, node := range nodes {
+		node.Start()
+	}
+
+	<-time.After(1 * time.Second) // Give nodes time to start
+
+	// Register Ping, Pong, FindNode handlers for root node
+	for node := range nodes {
+		nodes[node].Handle(PING, PingHandler)
+		nodes[node].Handle(PONG, PongHandler)
+		nodes[node].Handle(FIND_VALUE_REQUEST, FindValueRequestHandler)
+		nodes[node].Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+		nodes[node].Handle(STORE_REQUEST, StoreRequestHandler)
+	}
+
+	// Have each node join the network via pinging each other
+	for i, node := range nodes {
+		for j := 0; j < n; j++ {
+			if i != j {
+				node.SendPingMessage(nodes[j].Address())
+			}
+		}
+	}
+
+	<-time.After(3 * time.Second)
+
+	rootNode := nodes[0]
+
+	value := []byte("1234567890abcdef1234567890abcdef12345678")
+	key := kademliaID.NewKademliaID(string(value)) // Must be greater than 20 bytes
+	log.WithField("func", "TestFindValue").WithField("value", string(value)).WithField("key", key.String()).Debug("Storing value")
+
+	err := rootNode.Store(value)
+	assert.NoErrorf(t, err, "Failed to store value: %v", err)
+
+	<-time.After(3 * time.Second)
+
+	// Retrieve the value
+
+	val, err := rootNode.FindValue(key)
 	assert.NoErrorf(t, err, "Failed to find value: %v", err)
-	assert.Equalf(t, value, retrievedValue, "Expected retrieved value to match")
+	assert.NotNil(t, val, "Expected to find the stored value")
+	assert.Equalf(t, value, val, "Expected found value to match")
 
 	// Stop all nodes
 	for _, node := range nodes {

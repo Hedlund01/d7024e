@@ -14,6 +14,10 @@ func StoreRequestHandler(msg *network.Message, node IKademliaNode) error {
 		}
 		return err
 	}
+	errSend := node.SendStoreResponse(msg.From, nil, msg.MessageID)
+	if errSend != nil {
+		return errSend
+	}
 	return nil
 }
 
