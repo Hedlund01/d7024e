@@ -490,7 +490,7 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 	if val, err := strconv.Atoi(os.Getenv("ALPHA")); err == nil && val > 0 {
 		alpha = val
 	} else {
-		log.Warn("ALPHA not set or invalid, defaulting to 3")
+		log.WithField("func", "iterativeLookup").Warn("ALPHA not set or invalid, defaulting to 3")
 	}
 
 	list := shortlist.NewShortlist(targetID, kademliaBucket.GetBucketSize(), alpha)
@@ -524,7 +524,7 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 						close(valueCh)
 						list.AddContacts(contacts)
 						list.MarkSucceeded(contact)
-					case <-time.After(30 * time.Second):
+					case <-time.After(15 * time.Second):
 						list.MarkFailed(contact)
 					}
 				case FIND_VALUE_RESPONSE:
@@ -545,7 +545,7 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 						close(valueCh)
 						list.AddContacts(contacts)
 						list.MarkSucceeded(contact)
-					case <-time.After(30 * time.Second):
+					case <-time.After(15 * time.Second):
 						close(contactCh)
 						close(valueCh)
 						list.MarkFailed(contact)
@@ -606,7 +606,7 @@ func probeRemaining(list *shortlist.Shortlist, kn *KademliaNode, targetID *kadem
 					close(valueCh)
 					list.AddContacts(contacts)
 					list.MarkSucceeded(contact)
-				case <-time.After(30 * time.Second):
+				case <-time.After(15 * time.Second):
 					list.MarkFailed(contact)
 				}
 			case FIND_VALUE_RESPONSE:
@@ -626,7 +626,7 @@ func probeRemaining(list *shortlist.Shortlist, kn *KademliaNode, targetID *kadem
 					close(valueCh)
 					list.AddContacts(contacts)
 					list.MarkSucceeded(contact)
-				case <-time.After(30 * time.Second):
+				case <-time.After(15 * time.Second):
 					close(contactCh)
 					close(valueCh)
 					list.MarkFailed(contact)
