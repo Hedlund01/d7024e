@@ -1,11 +1,12 @@
 package kademlia
 
 import (
+	"testing"
+	"time"
+
 	kademliaID "d7024e/internal/kademlia/id"
 	mock "d7024e/internal/mock"
 	net "d7024e/pkg/network"
-	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -30,10 +31,7 @@ func TestPongHandler(t *testing.T) {
 	done := make(chan net.Message, 1)
 
 	// Set up handlers
-	nodeA.Handle("PING", func(msg *net.Message, node IKademliaNode) error {
-		// When nodeA receives a PING, it should send a PONG back
-		return node.SendPongMessage(msg.From, msg.MessageID)
-	})
+	nodeA.Handle("PING", PingHandler)
 
 	nodeB.Handle("PONG", func(msg *net.Message, node IKademliaNode) error {
 		// When nodeB receives a PONG, capture it for testing
@@ -78,10 +76,7 @@ func TestDoublePong(t *testing.T) {
 	done := make(chan net.Message, 2)
 
 	// Set up handlers
-	nodeA.Handle("PING", func(msg *net.Message, node IKademliaNode) error {
-		// When nodeA receives a PING, it should send a PONG back
-		return node.SendPongMessage(msg.From, msg.MessageID)
-	})
+	nodeA.Handle("PING", PingHandler)
 
 	nodeB.Handle("PONG", func(msg *net.Message, node IKademliaNode) error {
 		// When nodeB receives a PONG, capture it for testing
@@ -102,7 +97,6 @@ func TestDoublePong(t *testing.T) {
 	// Wait a moment for messages to be processed
 	time.Sleep(100 * time.Millisecond)
 	close(done)
-	
 
 	select {
 	case <-done:

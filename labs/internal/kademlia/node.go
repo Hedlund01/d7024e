@@ -1,11 +1,6 @@
 package kademlia
 
 import (
-	kademliaBucket "d7024e/internal/kademlia/bucket"
-	kademliaContact "d7024e/internal/kademlia/contact"
-	kademliaID "d7024e/internal/kademlia/id"
-	"d7024e/internal/kademlia/shortlist"
-	"d7024e/pkg/network"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +8,12 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	kademliaBucket "d7024e/internal/kademlia/bucket"
+	kademliaContact "d7024e/internal/kademlia/contact"
+	kademliaID "d7024e/internal/kademlia/id"
+	"d7024e/internal/kademlia/shortlist"
+	"d7024e/pkg/network"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -38,12 +39,12 @@ type TempMessageHandler func(msg *network.Message, contactCh chan []kademliaCont
 // IKademliaNode defines the interface that all Kademlia node types must implement
 type IKademliaNode interface {
 	// Core networking methods
-	send(to network.Address, msgType string, data []byte, messageID *kademliaID.KademliaID) error
+	send(to network.Address, msgType string, data []byte, messageID *kademliaID.KademliaID, expectReply bool) error
 	SendPingMessage(to network.Address) error
 	SendPongMessage(to network.Address, messageID *kademliaID.KademliaID) error
 	SendFindNode(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error
 	SendFindNodeResponse(to network.Address, contacts []kademliaContact.Contact, messageID *kademliaID.KademliaID) error
-	LookupContact(targetID *kademliaID.KademliaID) *shortlist.Shortlist
+	FindNode(targetID *kademliaID.KademliaID) *kademliaContact.Contact
 	Join(contact *kademliaContact.Contact)
 	Store(value []byte) error
 	StoreValue(data []byte, hash *kademliaID.KademliaID) error
@@ -52,7 +53,6 @@ type IKademliaNode interface {
 	SendStoreResponse(to network.Address, err error, id *kademliaID.KademliaID) error
 	Address() network.Address
 	SendFindValueResponse(to network.Address, value []byte, messageID *kademliaID.KademliaID) error
-	FindNode(id *kademliaID.KademliaID) (*kademliaContact.Contact, error)
 	FindValue(id *kademliaID.KademliaID) ([]byte, error)
 
 	// Message handling
@@ -61,11 +61,6 @@ type IKademliaNode interface {
 	Close() error
 
 	GetRoutingTable() *RoutingTable
-}
-
-type SafeCounter struct {
-	mu    sync.RWMutex
-	count int
 }
 
 // Type for temporary handler keys
@@ -167,7 +162,6 @@ func (kn *KademliaNode) Start() {
 			}
 
 			msg, err := kn.GetConnection().Recv()
-			log.WithField("func", "KademliaNode/Start").Debugf("Received message: %v", msg)
 			if err != nil {
 				if !kn.IsClosed() {
 					log.Printf("KademliaNode %s failed to receive message: %v", kn.Address().String(), err)
@@ -185,8 +179,6 @@ func (kn *KademliaNode) Start() {
 				msgChan, chanExists := kn.getMessageChan(msg.MessageID)
 				if chanExists && msg.MessageID != nil {
 					msgChan <- *msg.MessageID
-					log.WithField("msgID", msg.MessageID.String()).WithField("func", "KademliaNode/Start").Debugf(`%s message ID sent to channel`, msg.PayloadType)
-
 					kn.GetRoutingTable().AddContact(kademliaContact.NewContact(msg.FromID, msg.From.String()))
 					kn.closeMu.RLock()
 					channels := kn.tempHandlerChannels[tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID}]
@@ -200,8 +192,8 @@ func (kn *KademliaNode) Start() {
 				continue
 			}
 			if !exists {
-				log.WithField("msgType", msg.PayloadType).WithField("func", "KademliaNode/Start").Debugf("No handler found, using default")
-				handler, exists = handlers["DEFAULT"]
+				log.WithField("msgType", msg.PayloadType).WithField("func", "KademliaNode/Start").Debugf("No handler found, continuing...")
+				continue
 			}
 
 			if exists && handler != nil {
@@ -297,9 +289,7 @@ func checkReply(kn *KademliaNode, messageID *kademliaID.KademliaID) {
 			// Channel was closed, node is shutting down
 			return
 		}
-		log.WithField("msgID", messageID.String()).WithField("func", "checkReply").Debugf("Received reply for message ID")
 	case <-time.After(15 * time.Second):
-		log.WithField("msgID", messageID.String()).WithField("func", "checkReply").Debugf("Timeout waiting for reply for message ID")
 	}
 	kn.messageChanMap.mu.Lock()
 	delete(kn.messageChanMap.chMap, *messageID)
@@ -307,15 +297,17 @@ func checkReply(kn *KademliaNode, messageID *kademliaID.KademliaID) {
 }
 
 // Send sends a message to the target address
-func (kn *KademliaNode) send(to network.Address, msgType string, data []byte, messageID *kademliaID.KademliaID) error {
+func (kn *KademliaNode) send(to network.Address, msgType string, data []byte, messageID *kademliaID.KademliaID, expectReply bool) error {
 	connection, err := kn.network.Dial(to)
 	if err != nil {
 		return err
 	}
 	defer connection.Close()
 
-	kn.addToMessageChanMap(messageID)
-	go checkReply(kn, messageID)
+	if expectReply {
+		kn.addToMessageChanMap(messageID)
+		go checkReply(kn, messageID)
+	}
 
 	msg := &network.Message{
 		From:        kn.address,
@@ -329,117 +321,45 @@ func (kn *KademliaNode) send(to network.Address, msgType string, data []byte, me
 	return connection.Send(msg)
 }
 
-func (kn *KademliaNode) SendPingMessage(to network.Address) error {
-	return kn.send(to, PING, []byte("ping"), kademliaID.NewRandomKademliaID())
-}
-
-func (kn *KademliaNode) SendPongMessage(to network.Address, messageID *kademliaID.KademliaID) error {
-	return kn.send(to, PONG, []byte("pong"), messageID)
-}
-
-func (kn *KademliaNode) LookupContact(targetID *kademliaID.KademliaID) *shortlist.Shortlist {
-	return kn.lookupContact(targetID)
+func (kn *KademliaNode) FindNode(targetID *kademliaID.KademliaID) *kademliaContact.Contact {
+	result := kn.findNode(targetID)
+	if result.Len() == 0 {
+		return nil
+	}
+	return result.GetClosestContact()
 }
 
 func (kn *KademliaNode) Join(contact *kademliaContact.Contact) {
 	kn.GetRoutingTable().AddContact(*contact)
-	kn.lookupContact(kn.GetRoutingTable().GetMe().ID)
+	kn.findNode(kn.GetRoutingTable().GetMe().ID)
 }
 
 func (kn *KademliaNode) FindValue(id *kademliaID.KademliaID) ([]byte, error) {
 	localVal, err := kn.GetValue(id)
-	if err != nil && localVal != nil {
+	if err == nil && localVal != nil {
 		return localVal, nil
 	}
-
 	return kn.findValue(id)
 }
 
-func (kn *KademliaNode) findValue(id *kademliaID.KademliaID) ([]byte, error) {
-	log.WithField("func", "FindValue").Debugf("Finding value for ID: %s", id.String())
-	shortlist := kn.lookupContact(id)
-	if shortlist == nil {
-		return nil, errors.New("Shortlist is nil, cannot send find value")
-	}
-	var wg sync.WaitGroup
-	wg.Add(len(shortlist.GetAllProbedContacts()))
-
-	valueCh := make(chan []byte, 1)
-
-	for _, contact := range shortlist.GetAllProbedContacts() {
-		go kn.sendFindValue(contact.GetNetworkAddress(), id, valueCh, &wg)
-	}
-	wg.Wait()
-
-	select {
-	case result := <-valueCh:
-		return result, nil
-	case <-time.After(20 * time.Second):
-		return nil, errors.New("timeout waiting for find value response")
-	}
-
-}
-
-func (kn *KademliaNode) sendFindValue(to network.Address, id *kademliaID.KademliaID, valueCh chan []byte, wg *sync.WaitGroup) {
-	defer wg.Done()
-	msgId := kademliaID.NewRandomKademliaID()
-	log.WithField("to", to.String()).WithField("msgID", msgId.String()).WithField("func", "sendFindValue").Debugf("Sending FIND_VALUE request to %s", to.String())
-
-	valCh := make(chan []byte, 1)
-	kn.TempHandle(FIND_VALUE_RESPONSE, msgId, FindValueResponseTempHandler, nil, valCh)
-	err := kn.send(to, FIND_VALUE_REQUEST, []byte(id.String()), msgId)
-	if err != nil {
-		log.WithField("msgID", msgId.String()).WithField("func", "sendFindValue").Errorf("Failed to send FIND_VALUE request to %s: %v", to.String(), err)
-		return
-	}
-
-	select {
-	case result := <-valCh:
-		log.WithField("msgID", msgId.String()).WithField("func", "sendFindValue").Debugf("Received FIND_VALUE_RESPONSE: %s", result)
-		if result != nil {
-			valueCh <- result
-		}
-	case <-time.After(15 * time.Second):
-		log.WithField("msgID", msgId.String()).WithField("func", "sendFindValue").Errorf("Timeout waiting for FIND_VALUE_RESPONSE")
-	}
-}
-
-func (kn *KademliaNode) SendFindValueResponse(to network.Address, value []byte, messageID *kademliaID.KademliaID) error {
-	return kn.send(to, FIND_VALUE_RESPONSE, value, messageID)
-}
-
-// Store the given data with the given hash in the nodes storage
-func (kn *KademliaNode) StoreValue(data []byte, hash *kademliaID.KademliaID) error {
-	kn.storage[*hash] = data
-	return nil
-}
-
-// Retrieves the value with the given hash from the nodes storage
-func (kn *KademliaNode) GetValue(hash *kademliaID.KademliaID) ([]byte, error) {
-	value, exists := kn.storage[*hash]
-	if !exists {
-		return nil, errors.New("Value not found")
-	}
-	return value, nil
-}
-
-// Stores the given value on the kademlia network, with the hash of the data as a key
+// Store : stores the given value on the kademlia network, with the hash of the data as a key
 func (kn *KademliaNode) Store(value []byte) error {
-
 	log.WithField("func", "Store").Debugf("Storing value: %s", string(value))
-	shortlist := kn.lookupContact(kademliaID.NewKademliaID(string(value)))
+	id := kademliaID.NewKademliaID(string(value))
+	shortlist := kn.findNode(id)
 	if shortlist == nil {
-		return errors.New("Shortlist is nil, cannot send store value")
+		return errors.New("shortlist is nil, cannot send store value")
 	}
 	errorsCh := make(chan error, len(shortlist.GetAllProbedContacts()))
+	log.WithField("func", "Store").Debugf("Storing value on %d nodes", len(shortlist.GetAllProbedContacts()))
 	var wg sync.WaitGroup
 	wg.Add(len(shortlist.GetAllProbedContacts()))
 	for _, contact := range shortlist.GetAllProbedContacts() {
-		if contact.ID.Equals(kn.GetRoutingTable().GetMe().ID) { // Skip self, do not send store request RPC to itself
+		if contact.ID.Equals(kn.GetRoutingTable().GetMe().ID) { // Skip self, do not send store request RPC to itself, in case we have somehow added ourselves to the shortlist
 			wg.Done()
 			continue
 		}
-		go kn.sendStore(contact.GetNetworkAddress(), kademliaID.NewKademliaID(string(value)), value, &wg, errorsCh)
+		go kn.sendStore(contact.GetNetworkAddress(), id, value, &wg, errorsCh)
 	}
 	wg.Wait()
 	close(errorsCh)
@@ -453,49 +373,12 @@ func (kn *KademliaNode) Store(value []byte) error {
 	return errors.Join(allErrors...)
 }
 
-func (kn *KademliaNode) sendStore(to network.Address, hash *kademliaID.KademliaID, value []byte, wg *sync.WaitGroup, errorsCh chan error) {
-	defer wg.Done()
-	msgId := hash
-	log.WithField("to", to.String()).WithField("msgID", msgId.String()).WithField("func", "sendStore").Debugf("Sending STORE request to %s", to.String())
-
-	valCh := make(chan []byte, 1)
-	kn.TempHandle(STORE_RESPONSE, msgId, StoreResponseTempHandler, nil, valCh)
-
-	err := kn.send(to, STORE_REQUEST, value, msgId)
-	if err != nil {
-		log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Errorf("Failed to send STORE request to %s: %v", to.String(), err)
-		errorsCh <- err
-	}
-
-	select {
-	case result := <-valCh:
-		if string(result) == "OK" {
-			log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Debugf("Received STORE_RESPONSE: %s", result)
-
-		} else {
-			log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Errorf("STORE request rejected by %s", to.String())
-			errorsCh <- fmt.Errorf("STORE request rejected by %s", to.String())
-		}
-
-	case <-time.After(15 * time.Second):
-		log.WithField("msgID", msgId.String()).WithField("func", "sendStore").Errorf("Timeout waiting for STORE_RESPONSE")
-		errorsCh <- fmt.Errorf("Timeout waiting for STORE_RESPONSE from %s", to.String())
-	}
+func (kn *KademliaNode) SendPingMessage(to network.Address) error {
+	return kn.send(to, PING, []byte("ping"), kademliaID.NewRandomKademliaID(), true)
 }
 
-func (kn *KademliaNode) SendStoreResponse(to network.Address, err error, id *kademliaID.KademliaID) error {
-	if err != nil {
-		return kn.send(to, STORE_RESPONSE, []byte("REJECT"), id)
-	}
-	return kn.send(to, STORE_RESPONSE, []byte("OK"), id)
-}
-
-func (kn *KademliaNode) FindNode(id *kademliaID.KademliaID) (*kademliaContact.Contact, error) {
-	shortlist := kn.lookupContact(id)
-	if shortlist == nil {
-		return nil, errors.New("Shortlist is nil, cannot find node")
-	}
-	return shortlist.GetClosestContact(), nil
+func (kn *KademliaNode) SendPongMessage(to network.Address, messageID *kademliaID.KademliaID) error {
+	return kn.send(to, PONG, []byte("pong"), messageID, false)
 }
 
 func (kn *KademliaNode) SendFindNode(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error {
@@ -503,7 +386,7 @@ func (kn *KademliaNode) SendFindNode(to network.Address, messageID *kademliaID.K
 	if err != nil {
 		return err
 	}
-	return kn.send(to, FIND_NODE_REQUEST, payload, messageID)
+	return kn.send(to, FIND_NODE_REQUEST, payload, messageID, true)
 }
 
 func (kn *KademliaNode) SendFindNodeResponse(to network.Address, contacts []kademliaContact.Contact, messageID *kademliaID.KademliaID) error {
@@ -512,18 +395,93 @@ func (kn *KademliaNode) SendFindNodeResponse(to network.Address, contacts []kade
 	if err != nil {
 		return err
 	}
-	return kn.send(to, FIND_NODE_RESPONSE, data, messageID)
+	return kn.send(to, FIND_NODE_RESPONSE, data, messageID, false)
 }
 
-func (kn *KademliaNode) lookupContact(targetID *kademliaID.KademliaID) *shortlist.Shortlist {
-	list := kn.GetRoutingTable().FindClosestContacts(targetID, kademliaBucket.GetBucketSize())
-
-	return iterativeFindNodev2(kn, targetID, &list)
-
+func (kn *KademliaNode) SendFindValue(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error {
+	payload, err := json.Marshal(id)
+	if err != nil {
+		return err
+	}
+	return kn.send(to, FIND_VALUE_REQUEST, payload, messageID, true)
 }
 
-func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shortlistParam *[]kademliaContact.Contact) *shortlist.Shortlist {
-	if len(*shortlistParam) == 0 {
+func (kn *KademliaNode) SendFindValueResponse(to network.Address, value []byte, messageID *kademliaID.KademliaID) error {
+	return kn.send(to, FIND_VALUE_RESPONSE, value, messageID, false)
+}
+
+func (kn *KademliaNode) SendStoreResponse(to network.Address, err error, id *kademliaID.KademliaID) error {
+	if err != nil {
+		return kn.send(to, STORE_RESPONSE, []byte("REJECT"), id, false)
+	}
+	return kn.send(to, STORE_RESPONSE, []byte("OK"), id, true)
+}
+
+// StoreValue : store the given data with the given hash in the nodes storage
+func (kn *KademliaNode) StoreValue(data []byte, hash *kademliaID.KademliaID) error {
+	kn.closeMu.Lock()
+	defer kn.closeMu.Unlock()
+	kn.storage[*hash] = data
+	return nil
+}
+
+// GetValue : the value with the given hash from the nodes storage
+func (kn *KademliaNode) GetValue(hash *kademliaID.KademliaID) ([]byte, error) {
+	kn.closeMu.RLock()
+	defer kn.closeMu.RUnlock()
+	value, exists := kn.storage[*hash]
+	if !exists {
+		return nil, errors.New("value not found")
+	}
+	return value, nil
+}
+
+func (kn *KademliaNode) sendStore(to network.Address, hash *kademliaID.KademliaID, value []byte, wg *sync.WaitGroup, errorsCh chan error) {
+	defer wg.Done()
+	msgID := kademliaID.NewRandomKademliaID()
+	log.WithField("to", to.String()).WithField("msgID", msgID.String()).WithField("func", "sendStore").Debugf("Sending STORE request to %s", to.String())
+
+	valCh := make(chan []byte, 1)
+	kn.TempHandle(STORE_RESPONSE, msgID, StoreResponseTempHandler, nil, valCh)
+	data, marshalErr := json.Marshal(shortlist.StoreData{Hash: hash, Value: value})
+	if marshalErr != nil {
+		log.WithField("msgID", msgID.String()).WithField("func", "sendStore").Errorf("Failed to marshal store data: %v", marshalErr)
+		errorsCh <- marshalErr
+	}
+
+	err := kn.send(to, STORE_REQUEST, data, msgID, true)
+	if err != nil {
+		log.WithField("msgID", msgID.String()).WithField("func", "sendStore").Errorf("Failed to send STORE request to %s: %v", to.String(), err)
+		errorsCh <- err
+	}
+
+	select {
+	case result := <-valCh:
+		if string(result) != "OK" {
+			errorsCh <- fmt.Errorf("STORE request rejected by %s", to.String())
+		}
+	case <-time.After(15 * time.Second):
+		log.WithField("msgID", msgID.String()).WithField("func", "sendStore").Errorf("Timeout waiting for STORE_RESPONSE")
+		errorsCh <- fmt.Errorf("timeout waiting for STORE_RESPONSE from %s", to.String())
+	}
+}
+
+func (kn *KademliaNode) findNode(targetID *kademliaID.KademliaID) *shortlist.Shortlist {
+	return iterativeLookup(kn, targetID, FIND_NODE_RESPONSE)
+}
+
+func (kn *KademliaNode) findValue(targetID *kademliaID.KademliaID) ([]byte, error) {
+	value := iterativeLookup(kn, targetID, FIND_VALUE_RESPONSE).GetValue()
+	if value.Value == nil {
+		log.WithField("func", "findValue").Debugf("Value not found in network")
+		return nil, errors.New("value not found in network")
+	}
+	return value.Value, nil
+}
+
+func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerType string) *shortlist.Shortlist {
+	shortlistParam := kn.GetRoutingTable().FindClosestContacts(targetID, kademliaBucket.GetBucketSize())
+	if len(shortlistParam) == 0 {
 		log.Warn("Shortlist is empty, returning nil")
 		return nil
 	}
@@ -535,11 +493,8 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 		log.Warn("ALPHA not set or invalid, defaulting to 3")
 	}
 
-	// Keep track of the active queries, should be only alpha at a time
-	activeQueries := SafeCounter{count: 0}
-
 	list := shortlist.NewShortlist(targetID, kademliaBucket.GetBucketSize(), alpha)
-	list.AddContacts(*shortlistParam)
+	list.AddContacts(shortlistParam)
 
 	probeCh := make(chan kademliaContact.Contact, alpha)
 
@@ -552,58 +507,77 @@ func iterativeFindNodev2(kn *KademliaNode, targetID *kademliaID.KademliaID, shor
 					return
 				}
 				messageID := kademliaID.NewRandomKademliaID()
+
 				contactCh := make(chan []kademliaContact.Contact, alpha)
+				valueCh := make(chan []byte, 1)
 
-				kn.TempHandle(FIND_NODE_RESPONSE, messageID, FindNodeResponseTempHandler, contactCh, nil)
-
-				err := kn.SendFindNode(contact.GetNetworkAddress(), messageID, targetID)
-				if err != nil {
-					log.Error("Failed to send FindNode in iterativeFindNode, error: ", err)
+				switch handlerType {
+				case FIND_NODE_RESPONSE:
+					kn.TempHandle(FIND_NODE_RESPONSE, messageID, FindNodeResponseTempHandler, contactCh, nil)
+					err := kn.SendFindNode(contact.GetNetworkAddress(), messageID, targetID)
+					if err != nil {
+						log.Error("Failed to send FindNode in iterativeFindNode, error: ", err)
+					}
+					select {
+					case contacts := <-contactCh:
+						close(contactCh)
+						close(valueCh)
+						list.AddContacts(contacts)
+						list.MarkSucceeded(contact)
+					case <-time.After(30 * time.Second):
+						list.MarkFailed(contact)
+					}
+				case FIND_VALUE_RESPONSE:
+					kn.TempHandle(FIND_VALUE_RESPONSE, messageID, FindValueResponseTempHandler, contactCh, valueCh)
+					err := kn.SendFindValue(contact.GetNetworkAddress(), messageID, targetID)
+					if err != nil {
+						log.Error("Failed to send FindValue in iterativeFindNode, error: ", err)
+					}
+					select {
+					case value := <-valueCh:
+						close(contactCh)
+						close(valueCh)
+						list.SetValue(targetID, value)
+						list.MarkSucceeded(contact)
+						list.SetTargetFound()
+					case contacts := <-contactCh:
+						close(contactCh)
+						close(valueCh)
+						list.AddContacts(contacts)
+						list.MarkSucceeded(contact)
+					case <-time.After(30 * time.Second):
+						close(contactCh)
+						close(valueCh)
+						list.MarkFailed(contact)
+					}
 				}
-
-				select {
-				case contacts := <-contactCh:
-					close(contactCh)
-					list.AddContacts(contacts)
-					list.MarkSucceeded(contact)
-				case <-time.After(30 * time.Second):
-					list.MarkFailed(contact)
-				}
-				activeQueries.mu.Lock()
-				activeQueries.count--
-				activeQueries.mu.Unlock()
 			}
 		}()
 	}
 
 	for {
 		if list.TargetFound() {
+			log.WithField("func", "iterativeFindNode").Debugf("Target found in shortlist")
 			close(probeCh)
 			return list
 		}
 
-		activeQueries.mu.RLock()
-		canSendQuery := activeQueries.count < alpha
-		noActive := activeQueries.count == 0
-		activeQueries.mu.RUnlock()
-		if list.HasUnprobed() && list.HasImproved() && canSendQuery {
+		if list.HasUnprobed() && list.HasImproved() && list.GetProbingCount() < alpha {
 			contact, error := list.GetUnprobed()
 			if error != nil {
 				continue
 			}
-			activeQueries.mu.Lock()
-			activeQueries.count++
-			activeQueries.mu.Unlock()
 			probeCh <- contact
-		} else if !list.HasImproved() && noActive && list.GetProbingCount() == 0 {
+		} else if !list.HasImproved() && list.GetProbingCount() == 0 {
+			log.WithField("func", "iterativeFindNode").Debugf("No improvement and no active queries, ending search")
 			close(probeCh)
-			probeRemaining(list, kn, targetID, alpha)
+			probeRemaining(list, kn, targetID, alpha, handlerType)
 			return list
 		}
 	}
 }
 
-func probeRemaining(list *shortlist.Shortlist, kn *KademliaNode, targetID *kademliaID.KademliaID, alpha int) {
+func probeRemaining(list *shortlist.Shortlist, kn *KademliaNode, targetID *kademliaID.KademliaID, alpha int, handlerType string) {
 	contacts, err := list.GetAllUnprobed()
 	if err != nil {
 		return
@@ -615,21 +589,48 @@ func probeRemaining(list *shortlist.Shortlist, kn *KademliaNode, targetID *kadem
 		go func() {
 			contact := <-probeCh
 			messageID := kademliaID.NewRandomKademliaID()
+
 			contactCh := make(chan []kademliaContact.Contact, alpha)
+			valueCh := make(chan []byte, 1)
 
-			kn.TempHandle(FIND_NODE_RESPONSE, messageID, FindNodeResponseTempHandler, contactCh, nil)
-
-			err := kn.SendFindNode(contact.GetNetworkAddress(), messageID, targetID)
-			if err != nil {
-				log.Error("Failed to send FindNode in iterativeFindNode, error: ", err)
-			}
-
-			select {
-			case contacts := <-contactCh:
-				close(contactCh)
-				list.AddContacts(contacts)
-			case <-time.After(30 * time.Second):
-				list.MarkFailed(contact)
+			switch handlerType {
+			case FIND_NODE_RESPONSE:
+				kn.TempHandle(FIND_NODE_RESPONSE, messageID, FindNodeResponseTempHandler, contactCh, nil)
+				err := kn.SendFindNode(contact.GetNetworkAddress(), messageID, targetID)
+				if err != nil {
+					log.Error("Failed to send FindNode in iterativeFindNode, error: ", err)
+				}
+				select {
+				case contacts := <-contactCh:
+					close(contactCh)
+					close(valueCh)
+					list.AddContacts(contacts)
+					list.MarkSucceeded(contact)
+				case <-time.After(30 * time.Second):
+					list.MarkFailed(contact)
+				}
+			case FIND_VALUE_RESPONSE:
+				kn.TempHandle(FIND_VALUE_RESPONSE, messageID, FindValueResponseTempHandler, contactCh, valueCh)
+				err := kn.SendFindValue(contact.GetNetworkAddress(), messageID, targetID)
+				if err != nil {
+					log.Error("Failed to send FindValue in iterativeFindNode, error: ", err)
+				}
+				select {
+				case value := <-valueCh:
+					close(contactCh)
+					close(valueCh)
+					list.SetValue(targetID, value)
+					list.MarkSucceeded(contact)
+				case contacts := <-contactCh:
+					close(contactCh)
+					close(valueCh)
+					list.AddContacts(contacts)
+					list.MarkSucceeded(contact)
+				case <-time.After(30 * time.Second):
+					close(contactCh)
+					close(valueCh)
+					list.MarkFailed(contact)
+				}
 			}
 			wg.Done()
 		}()

@@ -1,11 +1,12 @@
 package shortlist
 
 import (
-	kademliaContact "d7024e/internal/kademlia/contact"
-	kademliaID "d7024e/internal/kademlia/id"
 	"errors"
 	"sort"
 	"sync"
+
+	kademliaContact "d7024e/internal/kademlia/contact"
+	kademliaID "d7024e/internal/kademlia/id"
 )
 
 type NodeState int
@@ -16,6 +17,11 @@ const (
 	Failed
 	Succeeded
 )
+
+type StoreData struct {
+	Hash  *kademliaID.KademliaID
+	Value []byte
+}
 
 type ShortlistNode struct {
 	Contact kademliaContact.Contact
@@ -31,6 +37,7 @@ type Shortlist struct {
 	hasImproved bool
 	targetFound bool
 	mu          sync.RWMutex
+	value       StoreData
 }
 
 func NewShortlist(target *kademliaID.KademliaID, k int, alpha int) *Shortlist {
@@ -121,7 +128,6 @@ func (sl *Shortlist) GetUnprobed() (kademliaContact.Contact, error) {
 	return kademliaContact.Contact{}, errors.New("no unprobed contacts available")
 }
 
-
 func (sl *Shortlist) GetAllUnprobed() ([]kademliaContact.Contact, error) {
 	sl.mu.Lock()
 	defer sl.mu.Unlock()
@@ -202,7 +208,15 @@ func (sl *Shortlist) HasUnprobed() bool {
 	return false
 }
 
+func (sl *Shortlist) SetTargetFound() {
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	sl.targetFound = true
+}
+
 func (sl *Shortlist) TargetFound() bool {
+	sl.mu.RLock()
+	defer sl.mu.RUnlock()
 	return sl.targetFound
 }
 
@@ -210,6 +224,18 @@ func (sl *Shortlist) GetClosestContact() *kademliaContact.Contact {
 	sl.mu.RLock()
 	defer sl.mu.RUnlock()
 	return sl.getClosestContact()
+}
+
+func (sl *Shortlist) SetValue(hash *kademliaID.KademliaID, data []byte) {
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	sl.value = StoreData{Hash: hash, Value: data}
+}
+
+func (sl *Shortlist) GetValue() StoreData {
+	sl.mu.RLock()
+	defer sl.mu.RUnlock()
+	return sl.value
 }
 
 func (sl *Shortlist) getClosestContact() *kademliaContact.Contact {
@@ -237,7 +263,7 @@ func (sl *Shortlist) GetAllProbedContacts() []kademliaContact.Contact {
 	defer sl.mu.RUnlock()
 	contacts := []kademliaContact.Contact{}
 	for _, node := range sl.nodes {
-		if node.State == Probing {
+		if node.State == Succeeded {
 			contacts = append(contacts, node.Contact)
 		}
 	}
@@ -246,6 +272,8 @@ func (sl *Shortlist) GetAllProbedContacts() []kademliaContact.Contact {
 
 func (sl *Shortlist) sort() {
 	sort.Slice(sl.nodes, func(i, j int) bool {
-		return sl.nodes[i].Contact.Less(&sl.nodes[j].Contact)
+		iDistance := sl.nodes[i].Contact.ID.CalcDistance(sl.target)
+		jDistance := sl.nodes[j].Contact.ID.CalcDistance(sl.target)
+		return iDistance.Less(jDistance)
 	})
 }

@@ -2,19 +2,21 @@ package kademliaBucket
 
 import (
 	"container/list"
-	kademliaID "d7024e/internal/kademlia/id"
+	"sync"
+
 	kademliaContact "d7024e/internal/kademlia/contact"
+	kademliaID "d7024e/internal/kademlia/id"
 )
 
 const bucketSize = 20
 
-
 // Bucket definition
 // contains a List
 type Bucket struct {
+	mu   sync.RWMutex
 	list *list.List
 }
-	
+
 // NewBucket returns a new instance of a bucket
 func NewBucket() *Bucket {
 	bucket := &Bucket{}
@@ -29,6 +31,8 @@ func GetBucketSize() int {
 // AddContact adds the Contact to the front of the bucket
 // or moves it to the front of the bucket if it already existed
 func (bucket *Bucket) AddContact(newContact kademliaContact.Contact) {
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
 	var element *list.Element
 	for e := bucket.list.Front(); e != nil; e = e.Next() {
 		nodeID := e.Value.(kademliaContact.Contact).ID
@@ -50,6 +54,8 @@ func (bucket *Bucket) AddContact(newContact kademliaContact.Contact) {
 // GetContactAndCalcDistance returns an array of Contacts where
 // the distance has already been calculated
 func (bucket *Bucket) GetContactAndCalcDistance(target *kademliaID.KademliaID) []kademliaContact.Contact {
+	bucket.mu.RLock()
+	bucket.mu.RUnlock()
 	var contacts []kademliaContact.Contact
 
 	for elt := bucket.list.Front(); elt != nil; elt = elt.Next() {
