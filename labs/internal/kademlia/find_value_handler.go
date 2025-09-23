@@ -24,6 +24,7 @@ func FindValueRequestHandler(msg *network.Message, node IKademliaNode) error {
 				finalContacts = append(finalContacts, contact)
 			}
 		}
+		finalContacts = finalContacts[:min(len(finalContacts), 3)] // Send at most 3 contacts
 		data, err := json.Marshal(finalContacts)
 		if err != nil {
 			log.WithField("msgID", msg.MessageID.String()).Error("Could not marshal contacts")
