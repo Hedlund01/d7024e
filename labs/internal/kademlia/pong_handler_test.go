@@ -74,6 +74,7 @@ func TestDoublePong(t *testing.T) {
 	}
 
 	done := make(chan net.Message, 2)
+	defer close(done)
 
 	// Set up handlers
 	nodeA.Handle("PING", PingHandler)
@@ -96,7 +97,6 @@ func TestDoublePong(t *testing.T) {
 
 	// Wait a moment for messages to be processed
 	time.Sleep(100 * time.Millisecond)
-	close(done)
 
 	select {
 	case <-done:

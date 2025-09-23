@@ -40,7 +40,8 @@ func TestStoreRequestHandler(t *testing.T) {
 	nodeA, _ := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8080})
 	nodeB, _ := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8081})
 	text := "Hello World"
-	data := shortlist.StoreData{Hash: kademliaID.NewKademliaID(text), Value: []byte(text)}
+	hash := kademliaID.NewRandomKademliaID()
+	data := shortlist.StoreData{Hash: hash, Value: []byte(text)}
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		t.Errorf("Failed to marshal data: %v", err)
