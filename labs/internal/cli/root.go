@@ -55,8 +55,7 @@ func Execute() {
 		log.Fatalf("Failed to get local IP: %v", err)
 	}
 	localIP = _localIP
-	// Set log level
-	log.SetLevel(log.DebugLevel)
+	log.SetLevel(log.InfoLevel)
 	log.AddHook(&DefaultFieldHook{})
 
 	// Log buildtime and version
