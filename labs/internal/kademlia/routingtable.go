@@ -38,6 +38,12 @@ func (routingTable *RoutingTable) AddContact(contact kademliaContact.Contact) {
 	bucket.AddContact(contact)
 }
 
+func (routingTable *RoutingTable) RemoveContact(contact kademliaContact.Contact) {
+	bucketIndex := routingTable.getBucketIndex(contact.ID)
+	bucket := routingTable.buckets[bucketIndex]
+	bucket.RemoveContact(contact)
+}
+
 // FindClosestContacts finds the count closest Contacts to the target in the RoutingTable
 func (routingTable *RoutingTable) FindClosestContacts(target *kademliaID.KademliaID, count int) []kademliaContact.Contact {
 	var candidates kademliaContact.ContactCandidates

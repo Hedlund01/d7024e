@@ -10,4 +10,4 @@ COPY . .
 
 RUN go build -ldflags "-X 'd7024e/pkg/build.BuildTime=${BUILD_TIME}' -X 'd7024e/pkg/build.BuildVersion=${BUILD_VERSION}'" -o main ./cmd/
 
-CMD ["/app/main", "start"]
+CMD ["/app/main", "start", "-v"]

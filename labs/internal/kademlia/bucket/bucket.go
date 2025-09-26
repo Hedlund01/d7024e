@@ -51,11 +51,22 @@ func (bucket *Bucket) AddContact(newContact kademliaContact.Contact) {
 	}
 }
 
+func (bucket *Bucket) RemoveContact(contact kademliaContact.Contact) {
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+	for e := bucket.list.Front(); e != nil; e = e.Next() {
+		if e.Value.(kademliaContact.Contact).ID.Equals(contact.ID) {
+			bucket.list.Remove(e)
+			return
+		}
+	}
+}
+
 // GetContactAndCalcDistance returns an array of Contacts where
 // the distance has already been calculated
 func (bucket *Bucket) GetContactAndCalcDistance(target *kademliaID.KademliaID) []kademliaContact.Contact {
 	bucket.mu.RLock()
-	bucket.mu.RUnlock()
+	defer bucket.mu.RUnlock()
 	var contacts []kademliaContact.Contact
 
 	for elt := bucket.list.Front(); elt != nil; elt = elt.Next() {
@@ -69,5 +80,7 @@ func (bucket *Bucket) GetContactAndCalcDistance(target *kademliaID.KademliaID) [
 
 // Len return the size of the bucket
 func (bucket *Bucket) Len() int {
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
 	return bucket.list.Len()
 }

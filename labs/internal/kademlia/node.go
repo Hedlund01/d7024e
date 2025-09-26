@@ -45,7 +45,7 @@ type IKademliaNode interface {
 	SendFindNode(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error
 	SendFindNodeResponse(to network.Address, contacts []kademliaContact.Contact, messageID *kademliaID.KademliaID) error
 	FindNode(targetID *kademliaID.KademliaID) *kademliaContact.Contact
-	Join(contact *kademliaContact.Contact)
+	Join(address *network.Address) error
 	Store(value []byte) error
 	StoreValue(data []byte, hash *kademliaID.KademliaID) error
 	GetValue(hash *kademliaID.KademliaID) ([]byte, error)
@@ -192,7 +192,7 @@ func (kn *KademliaNode) Start() {
 				continue
 			}
 			if !exists {
-				log.WithField("msgType", msg.PayloadType).WithField("func", "KademliaNode/Start").Debugf("No handler found, continuing...")
+				log.WithField("msgType", msg.PayloadType).WithField("func", "KademliaNode/Start").WithField("msg", msg).Debugf("No handler found, continuing...")
 				continue
 			}
 
@@ -211,6 +211,7 @@ func (kn *KademliaNode) Start() {
 				}
 
 				go handler(&msg, kn)
+				kn.GetRoutingTable().AddContact(kademliaContact.NewContact(msg.FromID, msg.From.String()))
 			}
 		}
 	}()
@@ -329,9 +330,15 @@ func (kn *KademliaNode) FindNode(targetID *kademliaID.KademliaID) *kademliaConta
 	return result.GetClosestContact()
 }
 
-func (kn *KademliaNode) Join(contact *kademliaContact.Contact) {
-	kn.GetRoutingTable().AddContact(*contact)
-	kn.findNode(kn.GetRoutingTable().GetMe().ID)
+func (kn *KademliaNode) Join(address *network.Address) error {
+
+	contact := kademliaContact.NewContact(kademliaID.NewRandomKademliaID(), address.String())
+	kn.GetRoutingTable().AddContact(contact)
+
+	kn.FindNode(kn.GetRoutingTable().GetMe().ID)
+
+	kn.GetRoutingTable().RemoveContact(contact)
+	return nil
 }
 
 func (kn *KademliaNode) FindValue(id *kademliaID.KademliaID) ([]byte, error) {

@@ -162,8 +162,8 @@ func TestNodeJoin(t *testing.T) {
 	newNode.Handle(PING, PingHandler)
 	newNode.Handle(PONG, PongHandler)
 	newNode.Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
-	contact := kademliaContact.NewContact(rootNode.GetRoutingTable().GetMe().ID, rootNode.Address().String())
-	newNode.Join(&contact)
+	rootAddr := rootNode.Address()
+	newNode.Join(&rootAddr)
 
 	contactCount := 0
 	for bucket := range newNode.GetRoutingTable().buckets {

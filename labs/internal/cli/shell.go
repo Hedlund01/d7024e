@@ -9,11 +9,9 @@ import (
 	"os"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-// Shell context holds the node instance and other shared state
 type ShellContext struct {
 	node   kademlia.IKademliaNode
 	ctx    context.Context
@@ -21,6 +19,22 @@ type ShellContext struct {
 }
 
 var shellCtx *ShellContext
+
+func shellPrint(msg string) {
+	fmt.Printf("[SHELL] %s\n", msg)
+}
+
+func shellPrintf(format string, args ...interface{}) {
+	fmt.Printf("[SHELL] "+format+"\n", args...)
+}
+
+func shellError(msg string) {
+	fmt.Fprintf(os.Stderr, "[SHELL ERROR] %s\n", msg)
+}
+
+func shellErrorf(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "[SHELL ERROR] "+format+"\n", args...)
+}
 
 // StartInteractiveShell starts the interactive shell directly
 func StartInteractiveShell(node kademlia.IKademliaNode, ctx context.Context, cancel context.CancelFunc) {
@@ -30,7 +44,6 @@ func StartInteractiveShell(node kademlia.IKademliaNode, ctx context.Context, can
 		cancel: cancel,
 	}
 
-	// Create root shell command for internal use only
 	shellCmd := &cobra.Command{
 		Use:          "shell",
 		Short:        "Interactive Kademlia node shell",
@@ -49,8 +62,11 @@ func StartInteractiveShell(node kademlia.IKademliaNode, ctx context.Context, can
 
 // startShell begins the interactive shell loop
 func startShell(rootCmd *cobra.Command) {
-	log.Info("=== Kademlia Node Interactive Shell ===")
-	log.Info("Type 'help' for available commands or 'exit' to quit")
+	shellPrint("=== Kademlia Node Interactive Shell ===")
+	shellPrint("Type 'help' for available commands")
+	shellPrint("Commands: status, put -v \"value\", get -v \"value\", exit, shutdown")
+	shellPrint("")
+
 	handleStatus()
 
 	reader := bufio.NewScanner(os.Stdin)
@@ -67,31 +83,26 @@ func startShell(rootCmd *cobra.Command) {
 			continue
 		}
 
-		// Parse the input into command and arguments
 		args := strings.Fields(input)
 		if len(args) == 0 {
 			continue
 		}
 
-		// Set the arguments for the root command and execute
 		rootCmd.SetArgs(args)
-
-		// Execute the command
 		if err := rootCmd.Execute(); err != nil {
-			log.Errorf("Error: %v", err)
+			shellErrorf("Command execution failed: %v", err)
 		}
 
-		// Check if context was cancelled (exit requested)
+		// Check if context is cancelled to exit gracefully
 		select {
 		case <-shellCtx.ctx.Done():
+			shellPrint("\nShell exiting due to shutdown signal...")
 			return
 		default:
-			// Continue with next iteration
 		}
 	}
 }
 
-// createStatusCommand creates the status command
 func createStatusCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
@@ -103,13 +114,12 @@ func createStatusCommand() *cobra.Command {
 	}
 }
 
-// createExitCommand creates the exit command
 func createExitCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "exit",
-		Aliases: []string{"quit", "q"},
-		Short:   "Gracefully shutdown the node and exit",
-		Long:    "Closes all network connections, saves state, and exits the interactive shell",
+		Aliases: []string{"quit", "q", "stop"},
+		Short:   "Exit the interactive shell (node continues running)",
+		Long:    "Closes all network connections, shuts down the node, and exits the application",
 		Run: func(cmd *cobra.Command, args []string) {
 			handleExit()
 		},
@@ -144,80 +154,67 @@ func createGetCommand() *cobra.Command {
 	return cmd
 }
 
-// handleStatus handles the status command logic
 func handleStatus() {
 	if shellCtx == nil || shellCtx.node == nil {
-		log.Error("Error: Node not available")
+		shellError("Node not available")
 		return
 	}
 
 	rt := shellCtx.node.GetRoutingTable()
 	me := rt.GetMe()
 
-	log.Info("=== Node Status ===")
-	log.Infof("Node ID: %s", me.ID.String())
-	log.Infof("Address: %s", me.GetNetworkAddress().String())
-	log.Infof("Number of Contacts: %d", rt.GetNumberOfConnections())
+	shellPrint("=== Node Status ===")
+	shellPrintf("Node ID: %s", me.ID.String())
+	shellPrintf("Address: %s", me.GetNetworkAddress().String())
+	shellPrintf("Number of Contacts: %d", rt.GetNumberOfConnections())
 }
 
-// handleExit handles the exit command logic
+// handleExit handles the exit command logic (shell only)
 func handleExit() {
 	if shellCtx == nil {
-		log.Info("Goodbye!")
+		shellPrint("Goodbye!")
 		return
 	}
 
-	log.Info("Shutting down node...")
+	shellPrint("Exiting interactive shell...")
 
-	// Close the node gracefully
-	if shellCtx.node != nil {
-		if err := shellCtx.node.Close(); err != nil {
-			log.Errorf("Error closing node: %v", err)
-		}
-	}
-
-	// Cancel the context to stop the node
 	if shellCtx.cancel != nil {
 		shellCtx.cancel()
 	}
-
-	log.Info("Node shutdown complete. Goodbye!")
-
 }
 
 func handlePut(cmd *cobra.Command) {
 	if shellCtx == nil || shellCtx.node == nil {
-		log.Error("Error: Node not available")
+		shellError("Node not available")
 		return
 	}
 
 	value, _ := cmd.Flags().GetString("value")
 	if value == "" {
-		log.Error("Error: Value is required")
+		shellError("Value is required")
 		return
 	}
 
-	//convert value to byte array
 	valueBytes := []byte(value)
 
 	err := shellCtx.node.Store(valueBytes)
 	if err != nil {
-		log.Errorf("Error storing value: %v", err)
+		shellErrorf("Error storing value: %v", err)
 		return
 	}
 
-	log.Info("Value stored successfully")
+	shellPrint("Value stored successfully")
 }
 
 func handleGet(cmd *cobra.Command) {
 	if shellCtx == nil || shellCtx.node == nil {
-		log.Error("Error: Node not available")
+		shellError("Node not available")
 		return
 	}
 
 	value, _ := cmd.Flags().GetString("value")
 	if value == "" {
-		log.Error("Error: Value is required")
+		shellError("Value is required")
 		return
 	}
 
@@ -225,9 +222,9 @@ func handleGet(cmd *cobra.Command) {
 
 	retrievedValue, err := shellCtx.node.FindValue(id)
 	if err != nil {
-		log.Errorf("Error retrieving value: %v", err)
+		shellErrorf("Error retrieving value: %v", err)
 		return
 	}
 
-	log.Infof("Retrieved value: %s", retrievedValue)
+	shellPrintf("Retrieved value: %s", retrievedValue)
 }
