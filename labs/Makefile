@@ -11,7 +11,7 @@ GOLDFLAGS += -X 'd7024e/pkg/main.BuildVersion=$(VERSION)'
 GOLDFLAGS += -X 'd7024e/pkg/build.BuildTime=$(BUILDTIME)'
 
 build:
-	@CGO_ENABLED=0 go build -ldflags="-s -w $(GOLDFLAGS)" -o ./bin/$(BINARY_NAME) ./cmd/main.go
+	@CGO_ENABLED=0 go build -v -ldflags="-s -w $(GOLDFLAGS)" -o ./bin/$(BINARY_NAME) ./cmd/main.go
 
 container:
 	docker build -t $(BUILD_IMAGE) .
