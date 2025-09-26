@@ -22,6 +22,15 @@ func NewContact(id *kademliaID.KademliaID, address string) Contact {
 	return Contact{id, address, nil}
 }
 
+func (contact *Contact) CheckIfDistanceIsZero() bool {
+	for _, b := range contact.distance {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // CalcDistance calculates the distance to the target and
 // fills the contacts distance field
 func (contact *Contact) CalcDistance(target *kademliaID.KademliaID) {

@@ -1,21 +1,27 @@
 package kademlia
 
 import (
-	"d7024e/internal/mock"
-	"fmt"
 	"testing"
 	"time"
+
+	"d7024e/internal/mock"
 
 	kademliaContact "d7024e/internal/kademlia/contact"
 	kademliaID "d7024e/internal/kademlia/id"
 
 	net "d7024e/pkg/network"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/stretchr/testify/assert"
 )
 
+func Init() {
+	log.SetLevel(log.DebugLevel)
+}
+
 func TestRPCValiadtion(t *testing.T) {
-	println("Starting TestRPCValidation")
+	log.WithField("func", "TestRPCValidation").Info("Starting TestRPCValidation")
 	network := mock.NewMockNetwork()
 	alice, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080})
 	bob, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8081})
@@ -24,7 +30,7 @@ func TestRPCValiadtion(t *testing.T) {
 
 	alice.Handle(PING, func(msg *net.Message, node IKademliaNode) error {
 		t.Logf("Alice gets: %s\n", msg.Payload)
-		return node.send(msg.From, PONG, []byte("REAL PONG"), msg.MessageID)
+		return node.send(msg.From, PONG, []byte("REAL PONG"), msg.MessageID, true)
 	})
 
 	bob.Handle(PONG, func(msg *net.Message, node IKademliaNode) error {
@@ -45,7 +51,7 @@ func TestRPCValiadtion(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		select {
 		case msg := <-done:
-			fmt.Printf("Extracted message from done channel: %s\n", msg.Payload)
+			log.WithField("payload", string(msg.Payload)).Debug("Extracted message from done channel")
 			messagesReceived++
 		case <-time.After(1000 * time.Millisecond):
 			// Timeout waiting for message, break out of loop
@@ -59,78 +65,11 @@ func TestRPCValiadtion(t *testing.T) {
 	assert.Equal(t, 1, messagesReceived, "Expected exactly one message to be received")
 }
 
-func TestSimpleIterativeNodeLookup(t *testing.T) {
-	network := mock.NewMockNetwork()
-	nodeA, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080})
-	nodeB, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8081})
-	nodeC, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8082})
-
-	nodeA.Handle(PING, func(msg *net.Message, node IKademliaNode) error {
-		return node.SendPongMessage(msg.From, msg.MessageID)
-	})
-
-	nodeA.Handle(PONG, func(msg *net.Message, node IKademliaNode) error {
-		return nil
-	})
-
-	nodeB.Handle(PING, func(msg *net.Message, node IKademliaNode) error {
-		return node.SendPongMessage(msg.From, msg.MessageID)
-	})
-
-	nodeB.Handle(PONG, func(msg *net.Message, node IKademliaNode) error {
-		return nil
-	})
-
-	nodeC.Handle(PING, func(msg *net.Message, node IKademliaNode) error {
-		return node.SendPongMessage(msg.From, msg.MessageID)
-	})
-
-	id := kademliaID.NewRandomKademliaID()
-
-	nodeB.Handle(FIND_NODE_REQUEST, func(msg *net.Message, node IKademliaNode) error {
-		t.Logf("Node B received FIND_NODE_REQUEST for ID: %s", id)
-		contacts := node.GetRoutingTable().FindClosestContacts(id, 3)
-		err := nodeB.SendFindNodeResponse(msg.From, contacts, msg.MessageID)
-		if err != nil {
-			t.Logf("Error sending FIND_NODE_RESPONSE from Node B: %v", err)
-			return nil
-		}
-		t.Logf("Node B sent FIND_NODE_RESPONSE with contacts: %v", contacts)
-
-		return nil
-	})
-
-	nodeA.Start()
-	nodeB.Start()
-	nodeC.Start()
-
-	time.Sleep(1 * time.Second)
-
-	nodeA.SendPingMessage(nodeB.Address())
-	nodeB.SendPingMessage(nodeC.Address())
-
-	time.Sleep(1 * time.Second)
-
-	nodeAContactReturned := nodeA.LookupContact(nodeC.GetRoutingTable().me.ID)
-
-	t.Logf("Node A looked up contact: %v", nodeAContactReturned)
-
-	closestContact := nodeAContactReturned.GetClosestContact()
-
-	assert.NotNil(t, nodeAContactReturned, "Expected contact to be found")
-	assert.Equal(t, nodeC.address.Port, closestContact.GetNetworkAddress().Port, "Expected found contact port to match")
-	assert.Equal(t, nodeC.GetRoutingTable().me.ID.String(), closestContact.ID.String(), "Expected found contact ID to match")
-
-	nodeA.Close()
-	nodeB.Close()
-	nodeC.Close()
-}
-
-func TestNodeJoin(t *testing.T) {
+func TestIterativeNodeLookup(t *testing.T) {
+	log.WithField("func", "TestSimpleIterativeNodeLookup").Info("Starting TestSimpleIterativeNodeLookup")
 	network := mock.NewMockNetwork()
 
-	// Create n new nodes and have them join the network via the root node
-	n := 5
+	n := 5 // Change size of network here
 	nodes := make([]IKademliaNode, n)
 	for i := 0; i < n; i++ {
 		port := 8081 + i
@@ -141,7 +80,60 @@ func TestNodeJoin(t *testing.T) {
 		nodes[i] = node
 	}
 
-	// Start all nodes
+	for _, node := range nodes {
+		node.Start()
+	}
+
+	for node := range nodes {
+		nodes[node].Handle(PING, PingHandler)
+		nodes[node].Handle(PONG, PongHandler)
+		nodes[node].Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+	}
+
+	lastNode := nodes[n-1]
+	rootNode := nodes[0]
+
+	for i, node := range nodes {
+		for j := 0; j < n; j++ {
+			if i != j {
+				node.SendPingMessage(nodes[j].Address())
+			}
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+
+	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000})
+	newNode.Start()
+	newNode.Handle(PING, PingHandler)
+	newNode.Handle(PONG, PongHandler)
+	newNode.Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+	contact := kademliaContact.NewContact(rootNode.GetRoutingTable().GetMe().ID, rootNode.Address().String())
+	newNode.GetRoutingTable().AddContact(contact)
+	result := newNode.FindNode(lastNode.GetRoutingTable().GetMe().ID)
+	assert.NotNil(t, result, "LookupContact returned nil")
+	assert.Equal(t, lastNode.GetRoutingTable().GetMe().ID.String(), result.ID.String(), "Expected to find the last node in the network")
+	for _, node := range nodes {
+		node.Close()
+	}
+	newNode.Close()
+}
+
+func TestNodeJoin(t *testing.T) {
+	log.WithField("func", "TestNodeJoin").Info("Starting TestNodeJoin")
+	network := mock.NewMockNetwork()
+
+	n := 100
+	nodes := make([]IKademliaNode, n)
+	for i := range nodes {
+		port := 8081 + i
+		node, err := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: port})
+		if err != nil {
+			t.Fatalf("Failed to create node %d: %v", i, err)
+		}
+		nodes[i] = node
+	}
+
 	for _, node := range nodes {
 		node.Start()
 	}
@@ -153,10 +145,10 @@ func TestNodeJoin(t *testing.T) {
 		nodes[node].Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
 	}
 
-	// Have each node join the network via the root node
 	rootNode := nodes[0]
+
 	for i, node := range nodes {
-		for j := 0; j < n; j++ {
+		for j := range nodes {
 			if i != j {
 				node.SendPingMessage(nodes[j].Address())
 			}
@@ -177,6 +169,7 @@ func TestNodeJoin(t *testing.T) {
 	for bucket := range newNode.GetRoutingTable().buckets {
 		contactCount += newNode.GetRoutingTable().buckets[bucket].Len()
 	}
+	println("New node contact count:", contactCount)
 
 	assert.Greater(t, contactCount, 3, "Expected new node to have contacts in its routing table after joining")
 
@@ -184,417 +177,174 @@ func TestNodeJoin(t *testing.T) {
 	for _, node := range nodes {
 		node.Close()
 	}
+	newNode.Close()
 }
 
-// 	alice, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080})
-// 	bob, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8081})
-
-// 	// Channel for synchronization
-// 	done := make(chan struct{})
-
-// 	// Alice says hello when she receives a message
-// 	alice.Handle("hello", func(msg net.Message, node IKademliaNode) error {
-// 		fmt.Printf("Alice gets: %s\n", msg.Payload)
-// 		return msg.ReplyString("reply", "Nice to meet you!", kademliaID.NewRandomKademliaID())
-// 	})
-
-// 	// Bob prints replies
-// 	bob.Handle("reply", func(msg net.Message, node IKademliaNode) error {
-// 		fmt.Printf("Bob: %s\n", string(msg.Payload))
-// 		done <- struct{}{}
-// 		return nil
-// 	})
-
-// 	// Start nodes and send message
-// 	alice.Start()
-// 	bob.Start()
-// 	bob.SendString(alice.Address(), "hello", "Hi Alice!")
-
-// 	// Wait for completion and cleanup
-// 	<-done
-// 	alice.Close()
-// 	bob.Close()
-// 	fmt.Println("Done!")
-// }
-
-// // Test communication but without cheking the contents of the messages
-// func TestNodeCommunication(t *testing.T) {
-// 	// Create context with timeout
-// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-// 	defer cancel()
-
-// 	// Create a mock network
-// 	network := mock.NewMockNetwork()
-
-// 	// Define addresses
-// 	nodeAAddr := net.Address{IP: "127.0.0.1", Port: 8080}
-// 	nodeBAddr := net.Address{IP: "127.0.0.1", Port: 8081}
-
-// 	// Create nodes
-// 	nodeA, err := NewKademliaNode(network, nodeAAddr)
-// 	if err != nil {
-// 		t.Fatalf("Failed to create node A: %v", err)
-// 	}
-
-// 	nodeB, err := NewKademliaNode(network, nodeBAddr)
-// 	if err != nil {
-// 		t.Fatalf("Failed to create node B: %v", err)
-// 	}
-
-// 	// Channels for synchronization
-// 	nodeAReceived := make(chan struct{}, 2)
-// 	nodeBReceived := make(chan struct{}, 2)
-
-// 	// Helper function to extract message content after ":"
-// 	extractContent := func(payload []byte) string {
-// 		payloadStr := string(payload)
-// 		for i, char := range payloadStr {
-// 			if char == ':' {
-// 				return payloadStr[i+1:]
-// 			}
-// 		}
-// 		return payloadStr
-// 	}
-
-// 	// Helper function to wait for channel with timeout
-// 	waitForSignal := func(ch <-chan struct{}, description string) {
-// 		select {
-// 		case <-ch:
-// 			t.Logf("✓ %s", description)
-// 		case <-ctx.Done():
-// 			t.Fatalf("Timeout waiting for: %s", description)
-// 		}
-// 	}
-
-// 	// Register message handlers for node A
-// 	nodeA.Handle("ping", func(msg net.Message, node IKademliaNode) error {
-// 		content := extractContent(msg.Payload)
-// 		t.Logf("Node A received ping from %s: %s", msg.From.String(), content)
-// 		nodeAReceived <- struct{}{}
-
-// 		// Send pong back
-// 		return nodeA.SendString(msg.From, "pong", "pong response from A")
-// 	})
-
-// 	nodeA.Handle("pong", func(msg net.Message, node IKademliaNode) error {
-// 		content := extractContent(msg.Payload)
-// 		t.Logf("Node A received pong from %s: %s", msg.From.String(), content)
-// 		nodeAReceived <- struct{}{}
-// 		return nil
-// 	})
-
-// 	// Register message handlers for node B
-// 	nodeB.Handle("ping", func(msg net.Message, node IKademliaNode) error {
-// 		content := extractContent(msg.Payload)
-// 		t.Logf("Node B received ping from %s: %s", msg.From.String(), content)
-// 		nodeBReceived <- struct{}{}
-
-// 		// Send pong back
-// 		return nodeB.SendString(msg.From, "pong", "pong response from B")
-// 	})
-
-// 	nodeB.Handle("pong", func(msg net.Message, node IKademliaNode) error {
-// 		content := extractContent(msg.Payload)
-// 		t.Logf("Node B received pong from %s: %s", msg.From.String(), content)
-// 		nodeBReceived <- struct{}{}
-// 		return nil
-// 	})
-
-// 	// Start both nodes
-// 	nodeA.Start()
-// 	nodeB.Start()
-// 	t.Logf("Node A started on %s", nodeAAddr.String())
-// 	t.Logf("Node B started on %s", nodeBAddr.String())
-
-// 	// Send some messages
-// 	t.Log("=== Sending messages ===")
-
-// 	// Node A sends ping to Node B
-// 	err = nodeA.SendString(nodeBAddr, "ping", "Hello from A!")
-// 	if err != nil {
-// 		t.Errorf("Failed to send ping: %v", err)
-// 	}
-
-// 	// Node B sends ping to Node A
-// 	err = nodeB.SendString(nodeAAddr, "ping", "Hello from B!")
-// 	if err != nil {
-// 		t.Errorf("Failed to send ping: %v", err)
-// 	}
-
-// 	// Wait for both ping messages to be received and pong responses with timeout
-// 	waitForSignal(nodeBReceived, "Node B receives ping from A")
-// 	waitForSignal(nodeAReceived, "Node A receives ping from B")
-// 	waitForSignal(nodeAReceived, "Node A receives pong from B")
-// 	waitForSignal(nodeBReceived, "Node B receives pong from A")
-
-// 	// Clean up
-// 	nodeA.Close()
-// 	nodeB.Close()
-
-// 	t.Log("Node communication test completed successfully")
-// }
-
-// func TestNetworkPartitioning(t *testing.T) {
-// 	// Create context with timeout
-// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-// 	defer cancel()
-
-// 	// Create a mock network
-// 	network := mock.NewMockNetwork()
-
-// 	// Define addresses
-// 	nodeAAddr := net.Address{IP: "127.0.0.1", Port: 8080}
-// 	nodeBAddr := net.Address{IP: "127.0.0.1", Port: 8081}
-
-// 	// Create nodes
-// 	nodeA, err := NewKademliaNode(network, nodeAAddr)
-// 	if err != nil {
-// 		t.Fatalf("Failed to create node A: %v", err)
-// 	}
-
-// 	nodeB, err := NewKademliaNode(network, nodeBAddr)
-// 	if err != nil {
-// 		t.Fatalf("Failed to create node B: %v", err)
-// 	}
-
-// 	// Channel for synchronization
-// 	messageReceived := make(chan struct{}, 2)
-
-// 	// Helper function to extract message content after ":"
-// 	extractContent := func(payload []byte) string {
-// 		payloadStr := string(payload)
-// 		for i, char := range payloadStr {
-// 			if char == ':' {
-// 				return payloadStr[i+1:]
-// 			}
-// 		}
-// 		return payloadStr
-// 	}
-
-// 	// Helper function to wait for channel with timeout
-// 	waitForMessage := func(description string) {
-// 		select {
-// 		case <-messageReceived:
-// 			t.Logf("✓ %s", description)
-// 		case <-ctx.Done():
-// 			t.Fatalf("Timeout waiting for: %s", description)
-// 		}
-// 	}
-
-// 	// Register message handler for node B
-// 	nodeB.Handle("test", func(msg net.Message, node IKademliaNode) error {
-// 		content := extractContent(msg.Payload)
-// 		t.Logf("Node B received message: %s", content)
-// 		messageReceived <- struct{}{}
-// 		return nil
-// 	})
-
-// 	// Start nodes
-// 	nodeA.Start()
-// 	nodeB.Start()
-
-// 	// Test normal communication first
-// 	t.Log("=== Testing normal communication ===")
-// 	err = nodeA.SendString(nodeBAddr, "test", "Normal message")
-// 	if err != nil {
-// 		t.Errorf("Failed to send normal message: %v", err)
-// 	}
-
-// 	// Wait for message to be received with timeout
-// 	waitForMessage("Normal message received")
-
-// 	// Test network partitioning
-// 	t.Log("=== Testing network partition ===")
-// 	network.Partition([]net.Address{nodeAAddr}, []net.Address{nodeBAddr})
-
-// 	err = nodeA.SendString(nodeBAddr, "test", "This should fail")
-// 	if err == nil {
-// 		t.Error("Expected partition error, but message was sent successfully")
-// 	} else {
-// 		t.Logf("✓ Expected partition error: %v", err)
-// 	}
-
-// 	// Heal the network
-// 	t.Log("=== Testing network heal ===")
-// 	network.Heal()
-
-// 	err = nodeA.SendString(nodeBAddr, "test", "This should work again")
-// 	if err != nil {
-// 		t.Errorf("Unexpected error after heal: %v", err)
-// 	}
-
-// 	// Wait for final message to be received with timeout
-// 	waitForMessage("Message after heal received")
-
-// 	// Clean up
-// 	nodeA.Close()
-// 	nodeB.Close()
-
-// 	t.Log("Network partitioning test completed successfully")
-// }
-
-// func TestBroadcastPattern(t *testing.T) {
-// 	// Create context with timeout
-// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-// 	defer cancel()
-
-// 	// Create a mock network
-// 	network := mock.NewMockNetwork()
-
-// 	// Create multiple nodes
-// 	nodes := make([]IKademliaNode, 3)
-// 	addrs := []net.Address{
-// 		{IP: "127.0.0.1", Port: 8080},
-// 		{IP: "127.0.0.1", Port: 8081},
-// 		{IP: "127.0.0.1", Port: 8082},
-// 	}
-
-// 	// Channel to track received messages
-// 	received := make(chan string, 10)
-
-// 	// Helper function to extract message content after ":"
-// 	extractContent := func(payload []byte) string {
-// 		payloadStr := string(payload)
-// 		for i, char := range payloadStr {
-// 			if char == ':' {
-// 				return payloadStr[i+1:]
-// 			}
-// 		}
-// 		return payloadStr
-// 	}
-
-// 	// Helper function to wait for broadcast message with timeout
-// 	waitForBroadcast := func(expectedCount int) {
-// 		for i := 0; i < expectedCount; i++ {
-// 			select {
-// 			case msg := <-received:
-// 				t.Logf("✓ %s", msg)
-// 			case <-ctx.Done():
-// 				t.Fatalf("Timeout waiting for broadcast message %d/%d", i+1, expectedCount)
-// 			}
-// 		}
-// 	}
-
-// 	// Create and start nodes
-// 	for i, addr := range addrs {
-// 		mockNode, err := NewKademliaNode(network, addr)
-// 		if err != nil {
-// 			t.Fatalf("Failed to create node %d: %v", i, err)
-// 		}
-// 		nodes[i] = mockNode
-
-// 		// Register broadcast handler
-// 		mockNode.Handle("broadcast", func(msg net.Message, node IKademliaNode) error {
-// 			content := extractContent(msg.Payload)
-// 			received <- fmt.Sprintf("Node %s received: %s", msg.To.String(), content)
-// 			return nil
-// 		})
-
-// 		mockNode.Start()
-// 	}
-
-// 	// Node 0 broadcasts to all other nodes
-// 	t.Log("=== Testing broadcast pattern ===")
-// 	for i := 1; i < len(addrs); i++ {
-// 		err := nodes[0].SendString(addrs[i], "broadcast", "Broadcast message")
-// 		if err != nil {
-// 			t.Errorf("Failed to send broadcast to node %d: %v", i, err)
-// 		}
-// 	}
-
-// 	// Wait for all messages to be received with timeout
-// 	expectedMessages := len(addrs) - 1 // All nodes except sender
-// 	waitForBroadcast(expectedMessages)
-
-// 	// Clean up
-// 	for _, node := range nodes {
-// 		node.Close()
-// 	}
-
-// 	t.Log("Broadcast pattern test completed successfully")
-// }
-
-// func TestRequestResponsePattern(t *testing.T) {
-// 	// Create context with timeout
-// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-// 	defer cancel()
-
-// 	// Create a mock network
-// 	network := mock.NewMockNetwork()
-
-// 	// Define addresses
-// 	clientAddr := net.Address{IP: "127.0.0.1", Port: 8080}
-// 	serverAddr := net.Address{IP: "127.0.0.1", Port: 8081}
-
-// 	// Create nodes
-// 	client, err := NewKademliaNode(network, clientAddr)
-// 	if err != nil {
-// 		t.Fatalf("Failed to create client: %v", err)
-// 	}
-
-// 	server, err := NewKademliaNode(network, serverAddr)
-// 	if err != nil {
-// 		t.Fatalf("Failed to create server: %v", err)
-// 	}
-
-// 	// Channel for response synchronization
-// 	responseReceived := make(chan string, 1)
-
-// 	// Helper function to extract message content after ":"
-// 	extractContent := func(payload []byte) string {
-// 		payloadStr := string(payload)
-// 		for i, char := range payloadStr {
-// 			if char == ':' {
-// 				return payloadStr[i+1:]
-// 			}
-// 		}
-// 		return payloadStr
-// 	}
-
-// 	// Server handles requests
-// 	server.Handle("request", func(msg net.Message, node IKademliaNode) error {
-// 		content := extractContent(msg.Payload)
-// 		t.Logf("Server received request: %s", content)
-// 		// Send response back
-// 		return server.SendString(msg.From, "response", "Hello from server")
-// 	})
-
-// 	// Client handles responses
-// 	client.Handle("response", func(msg net.Message, node IKademliaNode) error {
-// 		content := extractContent(msg.Payload)
-// 		t.Logf("Client received response: %s", content)
-// 		responseReceived <- content
-// 		return nil
-// 	})
-
-// 	// Start nodes
-// 	client.Start()
-// 	server.Start()
-
-// 	// Send request
-// 	t.Log("=== Testing request-response pattern ===")
-// 	err = client.SendString(serverAddr, "request", "Hello from client")
-// 	if err != nil {
-// 		t.Errorf("Failed to send request: %v", err)
-// 	}
-
-// 	// Wait for response with timeout
-// 	var response string
-// 	select {
-// 	case response = <-responseReceived:
-// 		t.Logf("✓ Response received: %s", response)
-// 	case <-ctx.Done():
-// 		t.Fatal("Timeout waiting for response")
-// 	}
-
-// 	expected := "Hello from server"
-// 	if response != expected {
-// 		t.Errorf("Expected response '%s', got '%s'", expected, response)
-// 	}
-
-// 	// Clean up
-// 	client.Close()
-// 	server.Close()
-
-// 	t.Log("Request-response pattern test completed successfully")
-// }
+func TestGetAndStoreValue(t *testing.T) {
+	log.WithField("func", "TestGetAndStoreValue").Info("Starting TestGetAndStoreValue")
+	mockNetwork := mock.NewMockNetwork()
+	node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: 8081})
+	assert.NoErrorf(t, err, "Failed to create node: %v", err)
+
+	// Start the node
+	node.Start()
+	<-time.After(1 * time.Second)
+
+	// Test storing a value
+	value := []byte("1234567890abcdef1234567890abcdef12345678")
+	key := kademliaID.NewKademliaID(string(value)) // Must be greater than 20 bytes
+
+	err = node.StoreValue(value, key)
+	assert.NoErrorf(t, err, "Failed to store value: %v", err)
+
+	// Test retrieving the value
+	retrievedValue, err := node.GetValue(key)
+	assert.NoErrorf(t, err, "Failed to get value: %v", err)
+	assert.Equalf(t, value, retrievedValue, "Expected retrieved value to match")
+
+	// Stop the node
+	node.Close()
+}
+
+func TestStore(t *testing.T) {
+	log.WithField("func", "TestStore").Info("Starting TestStore")
+	log.SetLevel(log.DebugLevel)
+	mockNetwork := mock.NewMockNetwork()
+
+	n := 20 // Change size of network here
+	nodes := make([]IKademliaNode, n)
+	for i := 0; i < n; i++ {
+		port := 8081 + i
+		node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: port})
+		if err != nil {
+			t.Fatalf("Failed to create node %d: %v", i, err)
+		}
+		nodes[i] = node
+	}
+
+	for _, node := range nodes {
+		node.Start()
+	}
+
+	time.Sleep(1 * time.Second) // Give nodes time to start
+
+	for node := range nodes {
+		nodes[node].Handle(PING, PingHandler)
+		nodes[node].Handle(PONG, PongHandler)
+		nodes[node].Handle(FIND_VALUE_REQUEST, FindValueRequestHandler)
+		nodes[node].Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+		nodes[node].Handle(STORE_REQUEST, StoreRequestHandler)
+	}
+
+	// Have each node join the network via pinging each other
+	for i, node := range nodes {
+		for j := range nodes {
+			if i != j {
+				node.SendPingMessage(nodes[j].Address())
+			}
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+
+	rootNode := nodes[0]
+
+	value := []byte("1234567890abcdef1234567890abcdef12345678")
+	key := kademliaID.NewKademliaID(string(value)) // Must be greater than 20 bytes
+	log.WithField("func", "TestStore").WithField("value", string(value)).WithField("key", key.String()).Info("Storing value")
+
+	err := rootNode.Store(value)
+	assert.NoErrorf(t, err, "Failed to store value: %v", err)
+
+	// Retrieve the value
+	var foundValue []byte
+	for i, node := range nodes {
+		retrievedValue, err := node.GetValue(key)
+		log.WithField("func", "TestStore").WithField("nodeIndex", i).WithField("err", err).Debugf("Checking node %d for stored value", i)
+		if err == nil && retrievedValue != nil {
+			foundValue = retrievedValue
+			break
+		}
+	}
+
+	assert.NotNil(t, foundValue, "Expected at least one node to store the value")
+	assert.Equalf(t, value, foundValue, "Expected found value to match")
+
+	// Stop all nodes
+	for _, node := range nodes {
+		node.Close()
+	}
+}
+
+func TestFindValue(t *testing.T) {
+	log.WithField("func", "TestFindValue").Info("Starting TestFindValue")
+	log.SetLevel(log.DebugLevel)
+	mockNetwork := mock.NewMockNetwork()
+
+	n := 5
+	nodes := make([]IKademliaNode, n)
+	for i := range nodes {
+		port := 8081 + i
+		node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: port})
+		if err != nil {
+			t.Fatalf("Failed to create node %d: %v", i, err)
+		}
+		nodes[i] = node
+	}
+
+	// Start all nodes
+	for _, node := range nodes {
+		node.Start()
+	}
+
+	time.Sleep(1 * time.Second) // Give nodes time to start
+
+	// Register Ping, Pong, FindNode handlers for root node
+	for node := range nodes {
+		nodes[node].Handle(PING, PingHandler)
+		nodes[node].Handle(PONG, PongHandler)
+		nodes[node].Handle(FIND_VALUE_REQUEST, FindValueRequestHandler)
+		nodes[node].Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+		nodes[node].Handle(STORE_REQUEST, StoreRequestHandler)
+	}
+
+	// Have each node join the network via pinging each other
+	for i, node := range nodes {
+		for j := range nodes {
+			if i != j {
+				node.SendPingMessage(nodes[j].Address())
+			}
+		}
+	}
+
+	time.Sleep(2 * time.Second)
+
+	rootNode := nodes[0]
+
+	value := []byte("1234567890abcdef1234567890abcdef12345678")
+	key := kademliaID.NewKademliaID(string(value)) // Must be greater than 20 bytes
+	log.WithField("func", "TestFindValue").WithField("value", string(value)).WithField("key", key.String()).Debug("Storing value")
+
+	err := rootNode.Store(value)
+	assert.NoErrorf(t, err, "Failed to store value: %v", err)
+
+	time.Sleep(1 * time.Second) // Give time for value to propagate
+
+	newNode, _ := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: 9000})
+	newNode.Start()
+	newNode.Handle(PING, PingHandler)
+	newNode.Handle(PONG, PongHandler)
+	newNode.Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+	contact := kademliaContact.NewContact(rootNode.GetRoutingTable().GetMe().ID, rootNode.Address().String())
+	newNode.GetRoutingTable().AddContact(contact)
+	val, err := newNode.FindValue(key)
+	assert.NoErrorf(t, err, "Failed to find value: %v", err)
+	assert.NotNil(t, val, "Expected to find the stored value")
+	assert.Equalf(t, value, val, "Expected found value to match")
+
+	newNode.Close()
+	// Stop all nodes
+	for _, node := range nodes {
+		node.Close()
+	}
+}
