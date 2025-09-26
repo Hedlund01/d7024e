@@ -191,6 +191,10 @@ func (kn *KademliaNode) Start() {
 				}
 				continue
 			}
+			if !exists {
+				log.WithField("msgType", msg.PayloadType).WithField("func", "KademliaNode/Start").WithField("msg", msg).Debugf("No handler found, continuing...")
+				continue
+			}
 
 			if exists && handler != nil && msg.MessageID != nil {
 				msgChan, chanExists := kn.getMessageChan(msg.MessageID)
