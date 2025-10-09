@@ -78,9 +78,9 @@ func TestFindValueResponseTempHandlerContactsData(t *testing.T) {
 
 func TestFindValueRequestHandlerValueFound(t *testing.T) {
 	mockNet := mock.NewMockNetwork()
-	nodeA, err := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8080})
+	nodeA, err := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8080}, *kademliaID.NewRandomKademliaID())
 	assert.NoError(t, err)
-	nodeB, err := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8081})
+	nodeB, err := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8081}, *kademliaID.NewRandomKademliaID())
 	assert.NoError(t, err)
 
 	// Store a value in nodeA
@@ -129,11 +129,11 @@ func TestFindValueRequestHandlerValueFound(t *testing.T) {
 
 func TestFindValueRequestHandlerValueNotFound(t *testing.T) {
 	mockNet := mock.NewMockNetwork()
-	nodeA, err := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8080})
+	nodeA, err := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8080}, *kademliaID.NewRandomKademliaID())
 	assert.NoError(t, err)
-	nodeB, err := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8081})
+	nodeB, err := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8081}, *kademliaID.NewRandomKademliaID())
 	assert.NoError(t, err)
-	nodeC, err := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8082})
+	nodeC, err := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8082}, *kademliaID.NewRandomKademliaID())
 	assert.NoError(t, err)
 
 	// Add some contacts to nodeA's routing table

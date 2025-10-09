@@ -47,6 +47,18 @@ var rootCmd = &cobra.Command{
 	Use:   "kadlab",
 	Short: "kadlab",
 	Long:  "kadlab",
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if Verbose {
+			log.SetLevel(log.DebugLevel)
+		} else {
+			log.SetLevel(log.InfoLevel)
+		}
+		log.AddHook(&DefaultFieldHook{})
+
+		// Log buildtime and version
+		log.Infof("Build version: %s", build.BuildVersion)
+		log.Infof("Build time: %s", build.BuildTime)
+	},
 }
 
 func Execute() {
@@ -55,13 +67,7 @@ func Execute() {
 		log.Fatalf("Failed to get local IP: %v", err)
 	}
 	localIP = _localIP
-	// Set log level
-	log.SetLevel(log.DebugLevel)
-	log.AddHook(&DefaultFieldHook{})
 
-	// Log buildtime and version
-	log.Infof("Build version: %s", build.BuildVersion)
-	log.Infof("Build time: %s", build.BuildTime)
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

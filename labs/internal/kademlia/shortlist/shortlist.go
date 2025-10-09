@@ -2,7 +2,9 @@ package shortlist
 
 import (
 	"errors"
+	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 
 	kademliaContact "d7024e/internal/kademlia/contact"
@@ -17,6 +19,21 @@ const (
 	Failed
 	Succeeded
 )
+
+func (ns NodeState) String() string {
+	switch ns {
+	case Unprobed:
+		return "Unprobed"
+	case Probing:
+		return "Probing"
+	case Failed:
+		return "Failed"
+	case Succeeded:
+		return "Succeeded"
+	default:
+		return fmt.Sprintf("NodeState(%d)", int(ns))
+	}
+}
 
 type StoreData struct {
 	Hash  *kademliaID.KademliaID
@@ -51,48 +68,19 @@ func NewShortlist(target *kademliaID.KademliaID, k int, alpha int) *Shortlist {
 	}
 }
 
-func (sl *Shortlist) AddContact(contact kademliaContact.Contact) {
-	sl.mu.Lock()
-	defer sl.mu.Unlock()
-
-	contact.CalcDistance(sl.target)
-
-	node := ShortlistNode{
-		Contact: contact,
-		State:   Unprobed,
-	}
-
-	sl.nodes = append(sl.nodes, node)
-	sl.nodeMap[*contact.ID] = true
-	sl.sort()
-
-	if len(sl.nodes) > sl.k {
-		sl.nodes = sl.nodes[:sl.k]
-	}
-}
-
 func (sl *Shortlist) AddContacts(contacts []kademliaContact.Contact) {
 	sl.mu.Lock()
 	defer sl.mu.Unlock()
 
 	previousClosest := sl.getClosestContact()
-	initialCount := len(sl.nodes)
-
 	for _, contact := range contacts {
 		if contact.ID.Equals(sl.target) {
 			sl.targetFound = true
 		}
 
-		// Check for duplicates
-		duplicate := false
-		for _, node := range sl.nodes {
-			if node.Contact.ID.Equals(contact.ID) {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate && !sl.nodeMap[*contact.ID] {
+		if !sl.nodeMap[*contact.ID] {
 			contact.CalcDistance(sl.target)
+
 			sl.nodes = append(sl.nodes, ShortlistNode{
 				Contact: contact,
 				State:   Unprobed,
@@ -109,8 +97,25 @@ func (sl *Shortlist) AddContacts(contacts []kademliaContact.Contact) {
 
 	// Improved if we added contacts and got a better closest contact
 	currentClosest := sl.getClosestContact()
-	sl.hasImproved = len(sl.nodes) > initialCount &&
-		(previousClosest == nil || (currentClosest != nil && currentClosest.Less(previousClosest)))
+
+	sl.hasImproved = false
+	if previousClosest == nil {
+		sl.hasImproved = true
+		return
+	} else {
+		if currentClosest.ID.Equals(previousClosest.ID) {
+			sl.hasImproved = false
+			return
+		}
+		if currentClosest.Less(previousClosest) || currentClosest.Equals(previousClosest) {
+			sl.hasImproved = true
+			return
+		}
+
+		return
+
+	}
+
 }
 
 func (sl *Shortlist) GetUnprobed() (kademliaContact.Contact, error) {
@@ -276,4 +281,19 @@ func (sl *Shortlist) sort() {
 		jDistance := sl.nodes[j].Contact.ID.CalcDistance(sl.target)
 		return iDistance.Less(jDistance)
 	})
+}
+
+func (sl *Shortlist) GetAllContacts() string {
+	sl.mu.RLock()
+	defer sl.mu.RUnlock()
+	contacts := ""
+	// Sort based on port
+	sort.SliceStable(sl.nodes, func(i, j int) bool {
+		return sl.nodes[i].Contact.Address < sl.nodes[j].Contact.Address
+	})
+	for _, node := range sl.nodes {
+		contacts += node.Contact.Address + " (" + node.State.String() + "), "
+	}
+	contacts += " (Total: " + strconv.Itoa(len(sl.nodes)) + ")" + " (TargetFound: " + strconv.FormatBool(sl.targetFound) + ")"
+	return contacts
 }

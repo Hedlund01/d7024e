@@ -1,11 +1,10 @@
 package kademlia
 
 import (
-	kademliaID "d7024e/internal/kademlia/id"
+	kademliaBucket "d7024e/internal/kademlia/bucket"
 	kademliaContact "d7024e/internal/kademlia/contact"
-	"d7024e/internal/kademlia/bucket"
+	kademliaID "d7024e/internal/kademlia/id"
 )
-
 
 // RoutingTable definition
 // keeps a refrence contact of me and an array of buckets
@@ -24,11 +23,25 @@ func NewRoutingTable(me kademliaContact.Contact) *RoutingTable {
 	return routingTable
 }
 
+func (routingTable *RoutingTable) GetNumberOfConnections() int {
+	total := 0
+	for _, bucket := range routingTable.buckets {
+		total += bucket.Len()
+	}
+	return total
+}
+
 // AddContact add a new contact to the correct Bucket
 func (routingTable *RoutingTable) AddContact(contact kademliaContact.Contact) {
 	bucketIndex := routingTable.getBucketIndex(contact.ID)
 	bucket := routingTable.buckets[bucketIndex]
 	bucket.AddContact(contact)
+}
+
+func (routingTable *RoutingTable) RemoveContact(contact kademliaContact.Contact) {
+	bucketIndex := routingTable.getBucketIndex(contact.ID)
+	bucket := routingTable.buckets[bucketIndex]
+	bucket.RemoveContact(contact)
 }
 
 // FindClosestContacts finds the count closest Contacts to the target in the RoutingTable
@@ -76,4 +89,3 @@ func (routingTable *RoutingTable) getBucketIndex(id *kademliaID.KademliaID) int 
 
 	return kademliaID.IDLength*8 - 1
 }
-

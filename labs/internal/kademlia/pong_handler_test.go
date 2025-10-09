@@ -16,14 +16,14 @@ func TestPongHandler(t *testing.T) {
 	nodeA, err := NewKademliaNode(network, net.Address{
 		IP:   "127.0.0.1",
 		Port: 8001,
-	})
+	}, *kademliaID.NewRandomKademliaID())
 	if err != nil {
 		t.Fatalf("Failed to create nodeA: %v", err)
 	}
 	nodeB, err := NewKademliaNode(network, net.Address{
 		IP:   "172.0.0.1",
 		Port: 8002,
-	})
+	}, *kademliaID.NewRandomKademliaID())
 	if err != nil {
 		t.Fatalf("Failed to create nodeB: %v", err)
 	}
@@ -61,14 +61,14 @@ func TestDoublePong(t *testing.T) {
 	nodeA, err := NewKademliaNode(network, net.Address{
 		IP:   "127.0.0.1",
 		Port: 8001,
-	})
+	}, *kademliaID.NewRandomKademliaID())
 	if err != nil {
 		t.Fatalf("Failed to create nodeA: %v", err)
 	}
 	nodeB, err := NewKademliaNode(network, net.Address{
 		IP:   "172.0.0.1",
 		Port: 8002,
-	})
+	}, *kademliaID.NewRandomKademliaID())
 	if err != nil {
 		t.Fatalf("Failed to create nodeB: %v", err)
 	}

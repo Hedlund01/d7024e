@@ -42,6 +42,11 @@ func (contact *Contact) Less(otherContact *Contact) bool {
 	return contact.distance.Less(otherContact.distance)
 }
 
+// Equals returns true if contact.distance = otherContact.distance
+func (contact *Contact) Equals(otherContact *Contact) bool {
+	return contact.distance.Equals(otherContact.distance)
+}
+
 // String returns a simple string representation of a Contact
 func (contact *Contact) String() string {
 	return fmt.Sprintf(`contact("%s", "%s")`, contact.ID, contact.Address)

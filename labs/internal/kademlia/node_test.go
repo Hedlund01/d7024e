@@ -23,8 +23,8 @@ func Init() {
 func TestRPCValiadtion(t *testing.T) {
 	log.WithField("func", "TestRPCValidation").Info("Starting TestRPCValidation")
 	network := mock.NewMockNetwork()
-	alice, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080})
-	bob, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8081})
+	alice, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8080}, *kademliaID.NewRandomKademliaID())
+	bob, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 8081}, *kademliaID.NewRandomKademliaID())
 
 	done := make(chan *net.Message, 2)
 
@@ -73,7 +73,7 @@ func TestIterativeNodeLookup(t *testing.T) {
 	nodes := make([]IKademliaNode, n)
 	for i := 0; i < n; i++ {
 		port := 8081 + i
-		node, err := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: port})
+		node, err := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: port}, *kademliaID.NewRandomKademliaID())
 		if err != nil {
 			t.Fatalf("Failed to create node %d: %v", i, err)
 		}
@@ -103,7 +103,7 @@ func TestIterativeNodeLookup(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000})
+	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000}, *kademliaID.NewRandomKademliaID())
 	newNode.Start()
 	newNode.Handle(PING, PingHandler)
 	newNode.Handle(PONG, PongHandler)
@@ -127,7 +127,7 @@ func TestNodeJoin(t *testing.T) {
 	nodes := make([]IKademliaNode, n)
 	for i := range nodes {
 		port := 8081 + i
-		node, err := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: port})
+		node, err := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: port}, *kademliaID.NewRandomKademliaID())
 		if err != nil {
 			t.Fatalf("Failed to create node %d: %v", i, err)
 		}
@@ -157,13 +157,13 @@ func TestNodeJoin(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000})
+	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000}, *kademliaID.NewRandomKademliaID())
 	newNode.Start()
 	newNode.Handle(PING, PingHandler)
 	newNode.Handle(PONG, PongHandler)
 	newNode.Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
-	contact := kademliaContact.NewContact(rootNode.GetRoutingTable().GetMe().ID, rootNode.Address().String())
-	newNode.Join(&contact)
+	rootAddr := rootNode.Address()
+	newNode.Join(&rootAddr, rootNode.GetRoutingTable().GetMe().ID)
 
 	contactCount := 0
 	for bucket := range newNode.GetRoutingTable().buckets {
@@ -183,7 +183,7 @@ func TestNodeJoin(t *testing.T) {
 func TestGetAndStoreValue(t *testing.T) {
 	log.WithField("func", "TestGetAndStoreValue").Info("Starting TestGetAndStoreValue")
 	mockNetwork := mock.NewMockNetwork()
-	node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: 8081})
+	node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: 8081}, *kademliaID.NewRandomKademliaID())
 	assert.NoErrorf(t, err, "Failed to create node: %v", err)
 
 	// Start the node
@@ -215,7 +215,7 @@ func TestStore(t *testing.T) {
 	nodes := make([]IKademliaNode, n)
 	for i := 0; i < n; i++ {
 		port := 8081 + i
-		node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: port})
+		node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: port}, *kademliaID.NewRandomKademliaID())
 		if err != nil {
 			t.Fatalf("Failed to create node %d: %v", i, err)
 		}
@@ -227,7 +227,7 @@ func TestStore(t *testing.T) {
 	}
 
 	time.Sleep(1 * time.Second) // Give nodes time to start
-
+	value := []byte("1234567890abcdef1234567890abcdef12345678")
 	for node := range nodes {
 		nodes[node].Handle(PING, PingHandler)
 		nodes[node].Handle(PONG, PongHandler)
@@ -249,7 +249,7 @@ func TestStore(t *testing.T) {
 
 	rootNode := nodes[0]
 
-	value := []byte("1234567890abcdef1234567890abcdef12345678")
+	value = []byte("1234567890abcdef1234567890abcdef12345678")
 	key := kademliaID.NewKademliaID(string(value)) // Must be greater than 20 bytes
 	log.WithField("func", "TestStore").WithField("value", string(value)).WithField("key", key.String()).Info("Storing value")
 
@@ -285,7 +285,7 @@ func TestFindValue(t *testing.T) {
 	nodes := make([]IKademliaNode, n)
 	for i := range nodes {
 		port := 8081 + i
-		node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: port})
+		node, err := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: port}, *kademliaID.NewRandomKademliaID())
 		if err != nil {
 			t.Fatalf("Failed to create node %d: %v", i, err)
 		}
@@ -330,7 +330,7 @@ func TestFindValue(t *testing.T) {
 
 	time.Sleep(1 * time.Second) // Give time for value to propagate
 
-	newNode, _ := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: 9000})
+	newNode, _ := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: 9000}, *kademliaID.NewRandomKademliaID())
 	newNode.Start()
 	newNode.Handle(PING, PingHandler)
 	newNode.Handle(PONG, PongHandler)
@@ -347,4 +347,109 @@ func TestFindValue(t *testing.T) {
 	for _, node := range nodes {
 		node.Close()
 	}
+}
+
+func TestJoinNoPing(t *testing.T) {
+	log.SetLevel(log.InfoLevel)
+	log.WithField("func", "TestNodeJoin").Info("Starting TestNodeJoin")
+	network := mock.NewMockNetwork()
+
+	n := 500
+	nodes := make([]IKademliaNode, n)
+	for i := range nodes {
+		port := 8081 + i
+		node, err := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: port}, *kademliaID.NewRandomKademliaID())
+		if err != nil {
+			t.Fatalf("Failed to create node %d: %v", i, err)
+		}
+		nodes[i] = node
+	}
+
+	for _, node := range nodes {
+		node.Start()
+	}
+
+	// Register Ping, Pong, FindNode handlers for root node
+	for node := range nodes {
+		nodes[node].Handle(PING, PingHandler)
+		nodes[node].Handle(PONG, PongHandler)
+		nodes[node].Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+	}
+
+	rootNode := nodes[0]
+
+	for i, node := range nodes {
+		if i != 0 {
+			addr := rootNode.Address()
+			node.Join(&addr, rootNode.GetRoutingTable().GetMe().ID)
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+
+	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000}, *kademliaID.NewRandomKademliaID())
+	newNode.Start()
+	newNode.Handle(PING, PingHandler)
+	newNode.Handle(PONG, PongHandler)
+	newNode.Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
+	rootAddr := rootNode.Address()
+	newNode.Join(&rootAddr, rootNode.GetRoutingTable().GetMe().ID)
+
+	time.Sleep(1 * time.Second)
+
+	contactCount := 0
+	for bucket := range newNode.GetRoutingTable().buckets {
+		contactCount += newNode.GetRoutingTable().buckets[bucket].Len()
+	}
+	println("New node contact count:", contactCount)
+
+	t.Logf("New node has %d contacts in its routing table after joining", contactCount)
+
+	rootRoutingTableCount := 0
+	for bucket := range rootNode.GetRoutingTable().buckets {
+		rootRoutingTableCount += rootNode.GetRoutingTable().buckets[bucket].Len()
+	}
+	t.Logf("Root node has %d contacts in its routing table", rootRoutingTableCount)
+
+	assert.Greater(t, contactCount, 3, "Expected new node to have contacts in its routing table after joining")
+
+	// Check for disconnected groupings in the network
+	visited := make(map[string]bool)
+	queue := []IKademliaNode{rootNode}
+	visited[rootNode.GetRoutingTable().GetMe().ID.String()] = true
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for bucket := range current.GetRoutingTable().buckets {
+			for i := 0; i < current.GetRoutingTable().buckets[bucket].Len(); i++ {
+				contacts := current.GetRoutingTable().buckets[bucket].GetContacts()
+				for _, contact := range contacts {
+					if !visited[contact.ID.String()] {
+						// Find node by ID
+						for _, node := range nodes {
+							if node.GetRoutingTable().GetMe().ID.String() == contact.ID.String() {
+								visited[contact.ID.String()] = true
+								queue = append(queue, node)
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(visited) < len(nodes) {
+		t.Fatalf("Network partition detected: only %d/%d nodes are connected", len(visited), len(nodes))
+	} else {
+		t.Logf("All nodes are connected in a single grouping")
+	}
+
+	// Stop all nodes
+	for _, node := range nodes {
+		node.Close()
+	}
+	newNode.Close()
+
 }
