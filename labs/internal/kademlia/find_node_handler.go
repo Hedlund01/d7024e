@@ -13,6 +13,7 @@ import (
 func FindNodeResponseTempHandler(msg *network.Message, contactCh chan []kademliaContact.Contact, valueCh chan []byte) error {
 	contacts := []kademliaContact.Contact{}
 	error := json.Unmarshal(msg.Payload, &contacts)
+	log.WithField("func", "FindNodeResponseTempHandler").WithField("from", msg.From.String()).WithField("contactCount", len(contacts)).Debugf("Received find node response from %s with %d contacts.", msg.From.String(), len(contacts))
 	contactCh <- contacts
 	return error
 }

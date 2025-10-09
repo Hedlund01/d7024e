@@ -247,6 +247,7 @@ func (sl *Shortlist) getClosestContact() *kademliaContact.Contact {
 	if len(sl.nodes) == 0 {
 		return nil
 	}
+	sl.sort()
 	return &sl.nodes[0].Contact
 }
 

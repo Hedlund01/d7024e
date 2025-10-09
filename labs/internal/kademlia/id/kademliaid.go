@@ -1,6 +1,7 @@
 package kademliaID
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"math/rand"
 )
@@ -13,22 +14,37 @@ type KademliaID [IDLength]byte
 
 // NewKademliaID returns a new instance of a KademliaID based on the string input
 func NewKademliaID(data string) *KademliaID {
-	decoded, _ := hex.DecodeString(data)
+	hasher := sha256.New()
+	hasher.Write([]byte(data))
+	hash := hasher.Sum(nil)
 
 	newKademliaID := KademliaID{}
 	for i := 0; i < IDLength; i++ {
-		newKademliaID[i] = decoded[i]
+		newKademliaID[i] = hash[i]
 	}
 
+	return &newKademliaID
+}
+
+func NewKademliaIDFromBytes(data []byte) *KademliaID {
+	newKademliaID := KademliaID{}
+	for i := 0; i < IDLength; i++ {
+		newKademliaID[i] = data[i]
+	}
 	return &newKademliaID
 }
 
 // NewRandomKademliaID returns a new instance of a random KademliaID,
 // change this to a better version if you like
 func NewRandomKademliaID() *KademliaID {
+	hasher := sha256.New()
+	randomData := make([]byte, 256)
+	rand.Read(randomData)
+	hasher.Write(randomData)
+	hash := hasher.Sum(nil)
 	newKademliaID := KademliaID{}
 	for i := 0; i < IDLength; i++ {
-		newKademliaID[i] = uint8(rand.Intn(256))
+		newKademliaID[i] = hash[i]
 	}
 	return &newKademliaID
 }
@@ -53,7 +69,7 @@ func (kademliaID KademliaID) Equals(otherKademliaID *KademliaID) bool {
 	return true
 }
 
-// CalcDistance returns a new instance of a KademliaID that is built 
+// CalcDistance returns a new instance of a KademliaID that is built
 // through a bitwise XOR operation betweeen kademliaID and target
 func (kademliaID KademliaID) CalcDistance(target *KademliaID) *KademliaID {
 	result := KademliaID{}
@@ -66,4 +82,16 @@ func (kademliaID KademliaID) CalcDistance(target *KademliaID) *KademliaID {
 // String returns a simple string representation of a KademliaID
 func (kademliaID *KademliaID) String() string {
 	return hex.EncodeToString(kademliaID[0:IDLength])
+}
+
+// NewKademliaIDFromHexString parses a hex string and returns a KademliaID
+func NewKademliaIDFromHexString(hexStr string) (*KademliaID, error) {
+	bytes, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return nil, err
+	}
+	if len(bytes) != IDLength {
+		return nil, hex.ErrLength
+	}
+	return NewKademliaIDFromBytes(bytes), nil
 }

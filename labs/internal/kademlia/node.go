@@ -66,7 +66,7 @@ type IKademliaNode interface {
 // Type for temporary handler keys
 type tempHandlerKey struct {
 	msgType string
-	msgId   *kademliaID.KademliaID
+	msgId   kademliaID.KademliaID
 }
 
 type tempHandlerChannels struct {
@@ -83,7 +83,8 @@ type KademliaNode struct {
 	tempHandlers        map[tempHandlerKey]TempMessageHandler
 	tempHandlerChannels map[tempHandlerKey]tempHandlerChannels
 	closed              bool
-	closeMu             sync.RWMutex
+	closeMu             sync.Mutex
+	nodeMu              sync.RWMutex
 	routingTable        *RoutingTable
 	messageChanMap      messageChanMap
 	storage             map[kademliaID.KademliaID][]byte
@@ -120,6 +121,8 @@ func NewKademliaNode(network network.Network, addr network.Address, kademliaId k
 		routingTable:        routingTable,
 		messageChanMap:      messageChanMap{chMap: make(map[kademliaID.KademliaID]chan kademliaID.KademliaID)},
 		storage:             make(map[kademliaID.KademliaID][]byte),
+		closeMu:             sync.Mutex{},
+		nodeMu:              sync.RWMutex{},
 	}, nil
 }
 
@@ -169,30 +172,26 @@ func (kn *KademliaNode) Start() {
 				return
 			}
 
-			kn.closeMu.RLock()
+			kn.nodeMu.RLock()
 			handlers := kn.GetHandlers()
 			handler, exists := handlers[msg.PayloadType]
-			tempHandler, tempExists := kn.tempHandlers[tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID}]
-			kn.closeMu.RUnlock()
+			tempHandler, tempExists := kn.tempHandlers[tempHandlerKey{msgType: msg.PayloadType, msgId: *msg.MessageID}]
+			kn.nodeMu.RUnlock()
 
 			if tempExists && tempHandler != nil {
 				msgChan, chanExists := kn.getMessageChan(msg.MessageID)
 				if chanExists && msg.MessageID != nil {
 					msgChan <- *msg.MessageID
-					kn.closeMu.RLock()
-					channels := kn.tempHandlerChannels[tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID}]
-					kn.closeMu.RUnlock()
+					kn.nodeMu.RLock()
+					channels := kn.tempHandlerChannels[tempHandlerKey{msgType: msg.PayloadType, msgId: *msg.MessageID}]
+					kn.nodeMu.RUnlock()
 					go tempHandler(&msg, channels.contactCh, channels.valueCh)
-					kn.closeMu.Lock()
-					delete(kn.tempHandlers, tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID})
-					delete(kn.tempHandlerChannels, tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID})
-					kn.closeMu.Unlock()
+					kn.nodeMu.Lock()
+					delete(kn.tempHandlers, tempHandlerKey{msgType: msg.PayloadType, msgId: *msg.MessageID})
+					delete(kn.tempHandlerChannels, tempHandlerKey{msgType: msg.PayloadType, msgId: *msg.MessageID})
+					kn.nodeMu.Unlock()
 					kn.GetRoutingTable().AddContact(kademliaContact.NewContact(msg.FromID, msg.From.String()))
 				}
-				continue
-			}
-			if !exists {
-				log.WithField("msgType", msg.PayloadType).WithField("func", "KademliaNode/Start").WithField("msg", msg).Debugf("No handler found, continuing...")
 				continue
 			}
 
@@ -218,21 +217,24 @@ func (kn *KademliaNode) Address() network.Address {
 
 // Handle registers a message handler for a specific message type, always online
 func (kn *KademliaNode) Handle(msgType string, handler MessageHandler) {
-	kn.closeMu.Lock()
+	kn.nodeMu.Lock()
 	kn.handlers[msgType] = handler
-	kn.closeMu.Unlock()
+	kn.nodeMu.Unlock()
 }
 
 func (kn *KademliaNode) TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan []kademliaContact.Contact, valueCh chan []byte) {
-	kn.closeMu.Lock()
-	kn.tempHandlers[tempHandlerKey{msgType: msgType, msgId: msgId}] = handler
-	kn.tempHandlerChannels[tempHandlerKey{msgType: msgType, msgId: msgId}] = tempHandlerChannels{contactCh: contactCh, valueCh: valueCh}
-	kn.closeMu.Unlock()
+	kn.nodeMu.Lock()
+	kn.tempHandlers[tempHandlerKey{msgType: msgType, msgId: *msgId}] = handler
+	kn.tempHandlerChannels[tempHandlerKey{msgType: msgType, msgId: *msgId}] = tempHandlerChannels{contactCh: contactCh, valueCh: valueCh}
+	kn.nodeMu.Unlock()
 }
 
 // Close shuts down the Kademlia node
 func (kn *KademliaNode) Close() error {
 	kn.closeMu.Lock()
+	kn.nodeMu.Lock()
+	defer kn.nodeMu.Unlock()
+	defer kn.closeMu.Unlock()
 	kn.closed = true
 
 	// Clean up all message channels to prevent goroutine leaks
@@ -247,7 +249,6 @@ func (kn *KademliaNode) Close() error {
 	kn.tempHandlers = make(map[tempHandlerKey]TempMessageHandler)
 	kn.tempHandlerChannels = make(map[tempHandlerKey]tempHandlerChannels)
 
-	kn.closeMu.Unlock()
 	return kn.connection.Close()
 }
 
@@ -263,8 +264,8 @@ func (kn *KademliaNode) GetHandlers() map[string]MessageHandler {
 
 // IsClosed returns whether the node is closed
 func (kn *KademliaNode) IsClosed() bool {
-	kn.closeMu.RLock()
-	defer kn.closeMu.RUnlock()
+	kn.closeMu.Lock()
+	defer kn.closeMu.Unlock()
 	return kn.closed
 }
 
@@ -346,8 +347,8 @@ func (kn *KademliaNode) Store(value []byte) error {
 	log.WithField("func", "Store").Debugf("Storing value: %s", string(value))
 	id := kademliaID.NewKademliaID(string(value))
 	shortlist := kn.findNode(id)
-	if shortlist == nil {
-		return errors.New("shortlist is nil, cannot send store value")
+	if len(shortlist.GetAllProbedContacts()) == 0 {
+		return errors.New("no nodes found to store the value")
 	}
 	errorsCh := make(chan error, len(shortlist.GetAllProbedContacts()))
 	log.WithField("func", "Store").Debugf("Storing value on %d nodes", len(shortlist.GetAllProbedContacts()))
@@ -369,6 +370,7 @@ func (kn *KademliaNode) Store(value []byte) error {
 			allErrors = append(allErrors, err)
 		}
 	}
+	log.WithField("func", "Store").Infof("The stored object has hash %s", id.String())
 	return errors.Join(allErrors...)
 }
 
@@ -418,16 +420,19 @@ func (kn *KademliaNode) SendStoreResponse(to network.Address, err error, id *kad
 
 // StoreValue : store the given data with the given hash in the nodes storage
 func (kn *KademliaNode) StoreValue(data []byte, hash *kademliaID.KademliaID) error {
-	kn.closeMu.Lock()
-	defer kn.closeMu.Unlock()
+	kn.nodeMu.Lock()
+	defer kn.nodeMu.Unlock()
 	kn.storage[*hash] = data
 	return nil
 }
 
 // GetValue : the value with the given hash from the nodes storage
 func (kn *KademliaNode) GetValue(hash *kademliaID.KademliaID) ([]byte, error) {
-	kn.closeMu.RLock()
-	defer kn.closeMu.RUnlock()
+	kn.nodeMu.RLock()
+	defer kn.nodeMu.RUnlock()
+	if hash == nil {
+		return nil, errors.New("hash is nil")
+	}
 	value, exists := kn.storage[*hash]
 	if !exists {
 		return nil, errors.New("value not found")
@@ -529,7 +534,7 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 							kn.GetRoutingTable().AddContact(contact)
 						}
 						list.MarkSucceeded(contact)
-					case <-time.After(15 * time.Second):
+					case <-time.After(5 * time.Second):
 						list.MarkFailed(contact)
 					}
 				case FIND_VALUE_RESPONSE:
@@ -553,7 +558,7 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 							kn.GetRoutingTable().AddContact(contact)
 						}
 						list.MarkSucceeded(contact)
-					case <-time.After(15 * time.Second):
+					case <-time.After(5 * time.Second):
 						close(contactCh)
 						close(valueCh)
 						list.MarkFailed(contact)
@@ -620,7 +625,7 @@ func probeRemaining(list *shortlist.Shortlist, kn *KademliaNode, targetID *kadem
 						kn.GetRoutingTable().AddContact(contact)
 					}
 					list.MarkSucceeded(contact)
-				case <-time.After(15 * time.Second):
+				case <-time.After(5 * time.Second):
 					list.MarkFailed(contact)
 				}
 			case FIND_VALUE_RESPONSE:
@@ -643,7 +648,7 @@ func probeRemaining(list *shortlist.Shortlist, kn *KademliaNode, targetID *kadem
 						kn.GetRoutingTable().AddContact(contact)
 					}
 					list.MarkSucceeded(contact)
-				case <-time.After(15 * time.Second):
+				case <-time.After(5 * time.Second):
 					close(contactCh)
 					close(valueCh)
 					list.MarkFailed(contact)

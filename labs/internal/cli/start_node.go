@@ -7,6 +7,7 @@ import (
 	kademliaNetwork "d7024e/internal/kademlia/network"
 	"d7024e/pkg/network"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"strconv"
@@ -31,13 +32,27 @@ func createStartNodeCommand() *cobra.Command {
 			fmt.Println("Starting new node...")
 			bootstrap, _ := cmd.Flags().GetString("bootstrap")
 			joinID, _ := cmd.Flags().GetString("join-id")
+
+			if bootstrap == "" {
+				randDelay := 5 //default to 5 seconds
+				if os.Getenv("RAND_DELAY") != "" {
+					randDelay, _ = strconv.Atoi(os.Getenv("RAND_DELAY"))
+				}
+				//Add random delay
+				if randDelay > 0 {
+					delay := time.Duration(rand.Intn(randDelay)) * time.Second
+					log.Infof("Adding random delay of %s before starting node...", delay)
+					time.Sleep(delay)
+				}
+			}
+
 			startNode(bootstrap, joinID)
 		},
 	}
 
 	cmd.Flags().StringP("bootstrap", "", "", "Start node as a bootstrap Kademlia node, value should be ID to be encrypted to kademliaID")
 	cmd.Flags().StringP("join-id", "", "", "Kademlia ID of an existing node to join the network through")
-	cmd.MarkFlagsMutuallyExclusive("isolation", "bootstrap")
+	cmd.MarkFlagsMutuallyExclusive("bootstrap", "join-id")
 
 	return cmd
 }
@@ -84,7 +99,8 @@ func startNode(bootstrap string, joinID string) {
 	node.Handle(kademlia.STORE_REQUEST, kademlia.StoreRequestHandler)
 
 	if bootstrap == "" {
-		addr, error := kademliaNetwork.ResolveService("KademliaStack_bootstrapNode", 8000)
+		addrs, error := kademliaNetwork.ResolveTasks("KademliaStack_bootstrapNode", 8000)
+		addr := addrs[0]
 
 		if error != nil {
 			log.Debugln("Error resolving service: ", error)

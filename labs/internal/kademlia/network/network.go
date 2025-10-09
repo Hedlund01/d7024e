@@ -111,7 +111,7 @@ func (kademliaConnection *KademliaConnection) Send(msg *network.Message) error {
 		return err
 	}
 
-	log.WithField("msg", msg).WithField("func", "network/send").Debugf("Sending message to %s", msg.To.String())
+	log.WithField("msg", msg).WithField("func", "network/send").Debugf("Sending message to %s, with msgID %s", msg.To.String(), msg.MessageID.String())
 	_, err = kademliaConnection.conn.Write(data)
 	if err != nil {
 		log.Errorf("Error sending message: %v", err)

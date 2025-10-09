@@ -1,11 +1,17 @@
 services:
-
   bootstrapNode:
     image: kadlab:latest # Make sure your Docker image has this name.
     stdin_open: true
     tty: true
     env_file: ./.env
-    command: ["/app/main", "start", "--bootstrap 1234567890abcdef1234567890abcdef12345678", "-v"]
+    command:
+      [
+        "/app/main",
+        "start",
+        "--bootstrap",
+        "1234567890abcdef1234567890abcdef12345678",
+        "-v",
+      ]
     deploy:
       mode: replicated
       replicas: 1
@@ -27,6 +33,14 @@ services:
     stdin_open: true
     tty: true
     env_file: ./.env
+    command:
+      [
+        "/app/main",
+        "start",
+        "--join-id",
+        "1234567890abcdef1234567890abcdef12345672",
+        "-v",
+      ]
     deploy:
       mode: replicated
       replicas: ${NUMBER_OF_REPLICAS}
@@ -40,11 +54,10 @@ services:
         max_attempts: 3
         window: 10s
     # expose:
-    #   - 8000  
+    #   - 8000
 
     networks:
       - kademlia_network
-      
+
 networks:
   kademlia_network:
-

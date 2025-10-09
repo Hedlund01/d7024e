@@ -64,7 +64,7 @@ func StartInteractiveShell(node kademlia.IKademliaNode, ctx context.Context, can
 func startShell(rootCmd *cobra.Command) {
 	shellPrint("=== Kademlia Node Interactive Shell ===")
 	shellPrint("Type 'help' for available commands")
-	shellPrint("Commands: status, put -v \"value\", get -v \"value\", exit, shutdown")
+	shellPrint("Commands: status, put -v \"value\", get -h <hash>, exit, shutdown")
 	shellPrint("")
 
 	handleStatus()
@@ -83,7 +83,7 @@ func startShell(rootCmd *cobra.Command) {
 			continue
 		}
 
-		args := strings.Fields(input)
+		args := parseCommandLine(input)
 		if len(args) == 0 {
 			continue
 		}
@@ -101,6 +101,56 @@ func startShell(rootCmd *cobra.Command) {
 		default:
 		}
 	}
+}
+
+// parseCommandLine parses a command line string respecting quoted strings (both single and double quotes)
+func parseCommandLine(input string) []string {
+	var args []string
+	var current strings.Builder
+	var quoteChar rune = 0 // 0 means not in quote, otherwise holds the quote character
+	escaped := false
+
+	for i, char := range input {
+		if escaped {
+			current.WriteRune(char)
+			escaped = false
+			continue
+		}
+
+		switch char {
+		case '\\':
+			escaped = true
+		case '"', '\'':
+			if quoteChar == 0 {
+				// Starting a quoted section
+				quoteChar = char
+			} else if quoteChar == char {
+				// Ending a quoted section
+				quoteChar = 0
+			} else {
+				// Different quote character inside quotes
+				current.WriteRune(char)
+			}
+		case ' ', '\t':
+			if quoteChar != 0 {
+				// Inside quotes, keep the space
+				current.WriteRune(char)
+			} else if current.Len() > 0 {
+				// Outside quotes, space is a separator
+				args = append(args, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(char)
+		}
+
+		// Handle end of string
+		if i == len(input)-1 && current.Len() > 0 {
+			args = append(args, current.String())
+		}
+	}
+
+	return args
 }
 
 func createStatusCommand() *cobra.Command {
@@ -144,13 +194,13 @@ func createGetCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "Retrieve a value from the Kademlia network",
-		Long:  "Fetches a value associated with a key from the Kademlia network",
+		Long:  "Fetches a value using its hash from the Kademlia network",
 		Run: func(cmd *cobra.Command, args []string) {
 			handleGet(cmd)
 		},
 	}
 
-	cmd.Flags().StringP("value", "v", "", "Value to be hashed as key and be retrieved from the network")
+	cmd.Flags().StringP("hash", "", "", "Hash of the value to retrieve from the network")
 	return cmd
 }
 
@@ -197,6 +247,9 @@ func handlePut(cmd *cobra.Command) {
 
 	valueBytes := []byte(value)
 
+	// Calculate the hash that will be used as the key
+	hash := kademliaID.NewKademliaID(value)
+
 	err := shellCtx.node.Store(valueBytes)
 	if err != nil {
 		shellErrorf("Error storing value: %v", err)
@@ -204,6 +257,7 @@ func handlePut(cmd *cobra.Command) {
 	}
 
 	shellPrint("Value stored successfully")
+	shellPrintf("Hash: %s", hash.String())
 }
 
 func handleGet(cmd *cobra.Command) {
@@ -212,13 +266,19 @@ func handleGet(cmd *cobra.Command) {
 		return
 	}
 
-	value, _ := cmd.Flags().GetString("value")
-	if value == "" {
-		shellError("Value is required")
+	hash, _ := cmd.Flags().GetString("hash")
+	if hash == "" {
+		shellError("Hash is required")
 		return
 	}
 
-	id := kademliaID.NewKademliaID(value)
+	id, err := kademliaID.NewKademliaIDFromHexString(hash)
+	if err != nil {
+		shellErrorf("Invalid hash format: %v", err)
+		return
+	}
+
+	shellPrintf("Looking for value with hash: %s", id.String())
 
 	retrievedValue, err := shellCtx.node.FindValue(id)
 	if err != nil {
@@ -226,5 +286,5 @@ func handleGet(cmd *cobra.Command) {
 		return
 	}
 
-	shellPrintf("Retrieved value: %s", retrievedValue)
+	shellPrintf("Retrieved value: %s", string(retrievedValue))
 }

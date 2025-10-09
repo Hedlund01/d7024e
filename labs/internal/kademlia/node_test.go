@@ -66,6 +66,7 @@ func TestRPCValiadtion(t *testing.T) {
 }
 
 func TestIterativeNodeLookup(t *testing.T) {
+	log.SetLevel(log.DebugLevel)
 	log.WithField("func", "TestSimpleIterativeNodeLookup").Info("Starting TestSimpleIterativeNodeLookup")
 	network := mock.NewMockNetwork()
 
@@ -108,11 +109,20 @@ func TestIterativeNodeLookup(t *testing.T) {
 	newNode.Handle(PING, PingHandler)
 	newNode.Handle(PONG, PongHandler)
 	newNode.Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
-	contact := kademliaContact.NewContact(rootNode.GetRoutingTable().GetMe().ID, rootNode.Address().String())
-	newNode.GetRoutingTable().AddContact(contact)
+
+	time.Sleep(1 * time.Second)
+
+	newNode.SendPingMessage(rootNode.Address())
+
+	time.Sleep(1 * time.Second)
+
 	result := newNode.FindNode(lastNode.GetRoutingTable().GetMe().ID)
+
 	assert.NotNil(t, result, "LookupContact returned nil")
-	assert.Equal(t, lastNode.GetRoutingTable().GetMe().ID.String(), result.ID.String(), "Expected to find the last node in the network")
+	t.Logf("Found node: %s at %s\n", result.ID.String(), result.Address)
+	t.Logf("Last node:  %s at %s\n", lastNode.GetRoutingTable().GetMe().ID.String(), lastNode.Address().String())
+	assert.True(t, lastNode.GetRoutingTable().me.ID.Equals(result.ID), "Expected to find the last node in the network")
+
 	for _, node := range nodes {
 		node.Close()
 	}
@@ -208,7 +218,6 @@ func TestGetAndStoreValue(t *testing.T) {
 
 func TestStore(t *testing.T) {
 	log.WithField("func", "TestStore").Info("Starting TestStore")
-	log.SetLevel(log.DebugLevel)
 	mockNetwork := mock.NewMockNetwork()
 
 	n := 20 // Change size of network here
@@ -278,7 +287,6 @@ func TestStore(t *testing.T) {
 
 func TestFindValue(t *testing.T) {
 	log.WithField("func", "TestFindValue").Info("Starting TestFindValue")
-	log.SetLevel(log.DebugLevel)
 	mockNetwork := mock.NewMockNetwork()
 
 	n := 5
@@ -349,12 +357,11 @@ func TestFindValue(t *testing.T) {
 	}
 }
 
-func TestJoinNoPing(t *testing.T) {
-	log.SetLevel(log.InfoLevel)
+func TestJoinAndFindAll(t *testing.T) {
 	log.WithField("func", "TestNodeJoin").Info("Starting TestNodeJoin")
 	network := mock.NewMockNetwork()
 
-	n := 500
+	n := 100
 	nodes := make([]IKademliaNode, n)
 	for i := range nodes {
 		port := 8081 + i
@@ -366,7 +373,9 @@ func TestJoinNoPing(t *testing.T) {
 	}
 
 	for _, node := range nodes {
-		node.Start()
+		if node != nil { // Add nil check
+			node.Start()
+		}
 	}
 
 	// Register Ping, Pong, FindNode handlers for root node
@@ -392,8 +401,9 @@ func TestJoinNoPing(t *testing.T) {
 	newNode.Handle(PING, PingHandler)
 	newNode.Handle(PONG, PongHandler)
 	newNode.Handle(FIND_NODE_REQUEST, FindNodeRequestHandler)
-	rootAddr := rootNode.Address()
-	newNode.Join(&rootAddr, rootNode.GetRoutingTable().GetMe().ID)
+	lastNode := nodes[n-1]
+	lastNodeAddr := lastNode.Address()
+	newNode.Join(&lastNodeAddr, lastNode.GetRoutingTable().GetMe().ID)
 
 	time.Sleep(1 * time.Second)
 
@@ -421,34 +431,38 @@ func TestJoinNoPing(t *testing.T) {
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
+		var contacts []kademliaContact.Contact
 		for bucket := range current.GetRoutingTable().buckets {
-			for i := 0; i < current.GetRoutingTable().buckets[bucket].Len(); i++ {
-				contacts := current.GetRoutingTable().buckets[bucket].GetContacts()
-				for _, contact := range contacts {
-					if !visited[contact.ID.String()] {
-						// Find node by ID
-						for _, node := range nodes {
-							if node.GetRoutingTable().GetMe().ID.String() == contact.ID.String() {
-								visited[contact.ID.String()] = true
-								queue = append(queue, node)
-								break
-							}
-						}
+			contacts = append(contacts, current.GetRoutingTable().buckets[bucket].GetContacts()...)
+		}
+		for _, contact := range contacts {
+			if !visited[contact.ID.String()] {
+				visited[contact.ID.String()] = true
+
+				for _, node := range nodes {
+					if node != nil && node.GetRoutingTable().GetMe().ID.String() == contact.ID.String() {
+						queue = append(queue, node)
+						break
 					}
 				}
 			}
 		}
+
 	}
 
-	if len(visited) < len(nodes) {
+	if len(visited) < len(nodes)+1 {
 		t.Fatalf("Network partition detected: only %d/%d nodes are connected", len(visited), len(nodes))
-	} else {
+	} else if len(visited) == len(nodes)+1 {
 		t.Logf("All nodes are connected in a single grouping")
+	} else {
+		t.Fatalf("Unexpected number of visited nodes: %d", len(visited))
 	}
 
 	// Stop all nodes
 	for _, node := range nodes {
-		node.Close()
+		if node != nil { // Add nil check
+			node.Close()
+		}
 	}
 	newNode.Close()
 

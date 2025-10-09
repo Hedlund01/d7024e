@@ -3,19 +3,32 @@ package mock
 import (
 	"d7024e/pkg/network"
 	"errors"
+	"math/rand/v2"
+	"os"
+	"strconv"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type mockNetwork struct {
 	mu         sync.RWMutex
 	listeners  map[network.Address]chan network.Message
 	partitions map[network.Address]bool // true if the address is partitioned
+	dropRate   float64                  // probability of dropping a message
 }
 
 func NewMockNetwork() network.Network {
+	dropRate := 0.1
+	if val, err := strconv.ParseFloat(os.Getenv("DROP_RATE"), 64); err == nil && val >= 0 {
+		dropRate = val
+	} else {
+		log.WithField("func", "NewMockNetwork").Warnf("DROP_RATE not set or invalid, defaulting to %f", dropRate)
+	}
 	return &mockNetwork{
 		listeners:  make(map[network.Address]chan network.Message),
 		partitions: make(map[network.Address]bool),
+		dropRate:   dropRate,
 	}
 }
 
@@ -67,6 +80,12 @@ type mockConnection struct {
 func (c *mockConnection) Send(msg *network.Message) error {
 	c.network.mu.RLock()
 
+	// Simulate message drop
+	if rand.Float64() < c.network.dropRate {
+		c.network.mu.RUnlock()
+		return errors.New("message dropped due to network conditions")
+	}
+
 	if c.network.partitions[c.addr] || c.network.partitions[msg.To] {
 		c.network.mu.RUnlock()
 		return errors.New("network partitioned")
@@ -77,8 +96,6 @@ func (c *mockConnection) Send(msg *network.Message) error {
 		c.network.mu.RUnlock()
 		return errors.New("destination address not found")
 	}
-
-
 
 	// Keep the lock while sending to prevent the channel from being closed
 	select {
