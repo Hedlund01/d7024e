@@ -84,3 +84,17 @@ func (bucket *Bucket) Len() int {
 	defer bucket.mu.RUnlock()
 	return bucket.list.Len()
 }
+
+// GetContacts returns an array of Contacts in the bucket
+func (bucket *Bucket) GetContacts() []kademliaContact.Contact {
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
+	var contacts []kademliaContact.Contact
+
+	for elt := bucket.list.Front(); elt != nil; elt = elt.Next() {
+		contact := elt.Value.(kademliaContact.Contact)
+		contacts = append(contacts, contact)
+	}
+
+	return contacts
+}

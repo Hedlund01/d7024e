@@ -31,7 +31,14 @@ func FindNodeRequestHandler(msg *network.Message, node IKademliaNode) error {
 		}
 	}
 	finalContacts = finalContacts[:min(len(finalContacts), 3)] // Send at most 3 contacts
-	log.WithField("func", "FindNodeRequestHandler").WithField("from", msg.From.String()).WithField("targetID", id.String()).WithField("contactCount", len(contacts)).Debugf("Node %s received find node request from %s for id %s. Responding with %d contacts.", node.GetRoutingTable().me.Address, msg.From.String(), id.String(), len(finalContacts))
+
+	// Collect addresses of the contacts we will send for clearer logging
+	contactAddrs := make([]string, 0, len(finalContacts))
+	for _, c := range finalContacts {
+		contactAddrs = append(contactAddrs, c.Address)
+	}
+
+	log.WithField("func", "FindNodeRequestHandler").WithField("from", msg.From.String()).WithField("targetID", id.String()).WithField("contactCount", len(finalContacts)).WithField("contacts", contactAddrs).Debugf("Node %s received find node request from %s for id %s. Responding with %d contacts.", node.GetRoutingTable().me.Address, msg.From.String(), id.String(), len(finalContacts))
 	err = node.SendFindNodeResponse(msg.From, finalContacts, msg.MessageID)
 	if err != nil {
 		return nil

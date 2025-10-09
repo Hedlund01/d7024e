@@ -37,8 +37,8 @@ func TestStoreResponseTempHandlerCorrectData(t *testing.T) {
 
 func TestStoreRequestHandler(t *testing.T) {
 	mockNet := mock.NewMockNetwork()
-	nodeA, _ := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8080})
-	nodeB, _ := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8081})
+	nodeA, _ := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8080}, *kademliaID.NewRandomKademliaID())
+	nodeB, _ := NewKademliaNode(mockNet, network.Address{IP: "127.0.0.1", Port: 8081}, *kademliaID.NewRandomKademliaID())
 	text := "Hello World"
 	hash := kademliaID.NewRandomKademliaID()
 	data := shortlist.StoreData{Hash: hash, Value: []byte(text)}

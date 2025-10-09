@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"d7024e/internal/kademlia"
+	kademliaID "d7024e/internal/kademlia/id"
 	kademliaNetwork "d7024e/internal/kademlia/network"
 	"d7024e/pkg/network"
 	"fmt"
@@ -28,17 +29,20 @@ func createStartNodeCommand() *cobra.Command {
 		Long:  "Start a new node in the network or in isolation mode",
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Println("Starting new node...")
-			isolationMode, _ := cmd.Flags().GetBool("isolation")
-			startNode(isolationMode)
+			bootstrap, _ := cmd.Flags().GetString("bootstrap")
+			joinID, _ := cmd.Flags().GetString("join-id")
+			startNode(bootstrap, joinID)
 		},
 	}
 
-	cmd.Flags().BoolP("isolation", "i", false, "Start node in isolation mode (skip network discovery and joining)")
+	cmd.Flags().StringP("bootstrap", "", "", "Start node as a bootstrap Kademlia node, value should be ID to be encrypted to kademliaID")
+	cmd.Flags().StringP("join-id", "", "", "Kademlia ID of an existing node to join the network through")
+	cmd.MarkFlagsMutuallyExclusive("isolation", "bootstrap")
 
 	return cmd
 }
 
-func startNode(isolationMode bool) {
+func startNode(bootstrap string, joinID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -48,10 +52,17 @@ func startNode(isolationMode bool) {
 
 	kademliaNetwork := kademliaNetwork.NewKademliaNetwork(ctx)
 
+	var kademliaId *kademliaID.KademliaID
+	if bootstrap != "" {
+		kademliaId = kademliaID.NewKademliaID(bootstrap)
+	} else {
+		kademliaId = kademliaID.NewRandomKademliaID()
+	}
+
 	node, err := kademlia.NewKademliaNode(kademliaNetwork, network.Address{
 		IP:   localIP,
 		Port: 8000,
-	})
+	}, *kademliaId)
 	if err != nil {
 		log.Fatalf("Failed to create Kademlia node: %v", err)
 		return
@@ -72,51 +83,21 @@ func startNode(isolationMode bool) {
 	node.Handle(kademlia.FIND_VALUE_REQUEST, kademlia.FindValueRequestHandler)
 	node.Handle(kademlia.STORE_REQUEST, kademlia.StoreRequestHandler)
 
-	if !isolationMode {
-		addr, error := kademliaNetwork.ResolveTasks("KademliaStack_kademliaNodes", 8000)
+	if bootstrap == "" {
+		addr, error := kademliaNetwork.ResolveService("KademliaStack_bootstrapNode", 8000)
 
 		if error != nil {
-			log.Debugln("Error resolving tasks: ", error)
+			log.Debugln("Error resolving service: ", error)
 		}
 
-		if len(addr) == 0 {
-			log.Info("No addresses resolved initially. Waiting up to 15 seconds for contacts to appear in routing table...")
-
-			timeout := time.After(15 * time.Second)
-			ticker := time.NewTicker(1 * time.Second)
-			defer ticker.Stop()
-
-			contactsFound := false
-			for !contactsFound {
-				select {
-				case <-timeout:
-					if node.GetRoutingTable().GetNumberOfConnections() == 0 {
-						log.Warn("No contacts found in routing table after 15 seconds. Shutting down")
-						cancel()
-						return
-					} else {
-						contactsFound = true
-					}
-
-				case <-ticker.C:
-					if node.GetRoutingTable().GetNumberOfConnections() > 0 {
-						log.Info("Contacts found in routing table, continuing...")
-						contactsFound = true
-					} else {
-						continue
-					}
-				}
-			}
-		}
+		joinIDKademliaID := kademliaID.NewKademliaID(joinID)
 
 		if len(addr) > 0 {
-			for _, a := range addr {
-				log.Infof("Resolved addresses: %v", addr)
-				joinNetwork(node, a)
-			}
+			log.Infof("Resolved addresses: %v", addr)
+			joinNetwork(node, addr, joinIDKademliaID)
 		}
 	} else {
-		log.Info("Starting in isolation mode - skipping network discovery and joining")
+		log.Info("Starting in bootstrap mode - skipping network discovery and joining")
 	}
 
 	log.Info("Starting node operations in background...")
@@ -133,7 +114,7 @@ func startNode(isolationMode bool) {
 	shutdownNode(node)
 }
 
-func joinNetwork(node kademlia.IKademliaNode, addressToJoin string) {
+func joinNetwork(node kademlia.IKademliaNode, addressToJoin string, joinID *kademliaID.KademliaID) {
 	addressParts := strings.Split(addressToJoin, ":")
 	if len(addressParts) != 2 {
 		log.Warnf("Invalid address format: %s, continuing without joining", addressToJoin)
@@ -149,7 +130,7 @@ func joinNetwork(node kademlia.IKademliaNode, addressToJoin string) {
 
 	log.Infof("Joining node at %s:%d", ip, port)
 
-	go node.Join(&network.Address{IP: ip, Port: port})
+	go node.Join(&network.Address{IP: ip, Port: port}, joinID)
 }
 
 func shutdownNode(node kademlia.IKademliaNode) {

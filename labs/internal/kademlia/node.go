@@ -45,7 +45,7 @@ type IKademliaNode interface {
 	SendFindNode(to network.Address, messageID *kademliaID.KademliaID, id *kademliaID.KademliaID) error
 	SendFindNodeResponse(to network.Address, contacts []kademliaContact.Contact, messageID *kademliaID.KademliaID) error
 	FindNode(targetID *kademliaID.KademliaID) *kademliaContact.Contact
-	Join(address *network.Address) error
+	Join(address *network.Address, joinID *kademliaID.KademliaID) error
 	Store(value []byte) error
 	StoreValue(data []byte, hash *kademliaID.KademliaID) error
 	GetValue(hash *kademliaID.KademliaID) ([]byte, error)
@@ -100,13 +100,13 @@ type messageChanMap struct {
 }
 
 // NewKademliaNode creates a new Kademlia node
-func NewKademliaNode(network network.Network, addr network.Address) (*KademliaNode, error) {
+func NewKademliaNode(network network.Network, addr network.Address, kademliaId kademliaID.KademliaID) (*KademliaNode, error) {
 	conn, err := network.Listen(addr)
 	if err != nil {
 		return nil, err
 	}
 
-	contact := kademliaContact.NewContact(kademliaID.NewRandomKademliaID(), addr.String())
+	contact := kademliaContact.NewContact(&kademliaId, addr.String())
 	routingTable := NewRoutingTable(contact)
 
 	return &KademliaNode{
@@ -164,7 +164,7 @@ func (kn *KademliaNode) Start() {
 			msg, err := kn.GetConnection().Recv()
 			if err != nil {
 				if !kn.IsClosed() {
-					log.Printf("KademliaNode %s failed to receive message: %v", kn.Address().String(), err)
+					log.WithField("func", "node/start").Warnf("KademliaNode %s failed to receive message: %v", kn.Address().String(), err)
 				}
 				return
 			}
@@ -179,7 +179,6 @@ func (kn *KademliaNode) Start() {
 				msgChan, chanExists := kn.getMessageChan(msg.MessageID)
 				if chanExists && msg.MessageID != nil {
 					msgChan <- *msg.MessageID
-					kn.GetRoutingTable().AddContact(kademliaContact.NewContact(msg.FromID, msg.From.String()))
 					kn.closeMu.RLock()
 					channels := kn.tempHandlerChannels[tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID}]
 					kn.closeMu.RUnlock()
@@ -188,28 +187,19 @@ func (kn *KademliaNode) Start() {
 					delete(kn.tempHandlers, tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID})
 					delete(kn.tempHandlerChannels, tempHandlerKey{msgType: msg.PayloadType, msgId: msg.MessageID})
 					kn.closeMu.Unlock()
+					kn.GetRoutingTable().AddContact(kademliaContact.NewContact(msg.FromID, msg.From.String()))
 				}
 				continue
 			}
-			if !exists {
-				log.WithField("msgType", msg.PayloadType).WithField("func", "KademliaNode/Start").WithField("msg", msg).Debugf("No handler found, continuing...")
-				continue
-			}
 
-			if exists && handler != nil {
-				// Check if this is a PONG message and if there's a message channel for it
-				if msg.PayloadType == PONG {
-					msgChan, chanExists := kn.getMessageChan(msg.MessageID)
-					if chanExists && msg.MessageID != nil {
-						// Send the message ID to the channel
-						msgChan <- *msg.MessageID
-						log.WithField("msgID", msg.MessageID.String()).WithField("func", "KademliaNode/Start").Debugf("PING message ID sent to channel")
-						kn.GetRoutingTable().AddContact(kademliaContact.NewContact(msg.FromID, msg.From.String()))
-					} else {
-						continue
-					}
+			if exists && handler != nil && msg.MessageID != nil {
+				msgChan, chanExists := kn.getMessageChan(msg.MessageID)
+				if chanExists {
+					// Send the message ID to the channel
+					msgChan <- *msg.MessageID
+				} else if msg.PayloadType == PONG {
+					continue
 				}
-
 				go handler(&msg, kn)
 				kn.GetRoutingTable().AddContact(kademliaContact.NewContact(msg.FromID, msg.From.String()))
 			}
@@ -327,17 +317,15 @@ func (kn *KademliaNode) FindNode(targetID *kademliaID.KademliaID) *kademliaConta
 	if result.Len() == 0 {
 		return nil
 	}
+	log.WithField("func", "FindNode").Infof("Shortlist items: %s", result.GetAllContacts())
 	return result.GetClosestContact()
 }
 
-func (kn *KademliaNode) Join(address *network.Address) error {
-
-	contact := kademliaContact.NewContact(kademliaID.NewRandomKademliaID(), address.String())
+func (kn *KademliaNode) Join(address *network.Address, joinID *kademliaID.KademliaID) error {
+	contact := kademliaContact.NewContact(joinID, address.String())
 	kn.GetRoutingTable().AddContact(contact)
 
 	kn.FindNode(kn.GetRoutingTable().GetMe().ID)
-
-	kn.GetRoutingTable().RemoveContact(contact)
 	return nil
 }
 
@@ -504,6 +492,8 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 	list.AddContacts(shortlistParam)
 
 	probeCh := make(chan kademliaContact.Contact, alpha)
+	var wg sync.WaitGroup
+	wg.Add(alpha)
 
 	// Start the go rutines that will consume the shortlist and send out FIND_NODE requests
 	for range alpha {
@@ -511,6 +501,7 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 			for {
 				contact, ok := <-probeCh
 				if !ok {
+					wg.Done()
 					return
 				}
 				messageID := kademliaID.NewRandomKademliaID()
@@ -530,6 +521,9 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 						close(contactCh)
 						close(valueCh)
 						list.AddContacts(contacts)
+						for _, contact := range contacts {
+							kn.GetRoutingTable().AddContact(contact)
+						}
 						list.MarkSucceeded(contact)
 					case <-time.After(15 * time.Second):
 						list.MarkFailed(contact)
@@ -551,6 +545,9 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 						close(contactCh)
 						close(valueCh)
 						list.AddContacts(contacts)
+						for _, contact := range contacts {
+							kn.GetRoutingTable().AddContact(contact)
+						}
 						list.MarkSucceeded(contact)
 					case <-time.After(15 * time.Second):
 						close(contactCh)
@@ -566,10 +563,12 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 		if list.TargetFound() {
 			log.WithField("func", "iterativeFindNode").Debugf("Target found in shortlist")
 			close(probeCh)
+			wg.Wait()
 			return list
 		}
 
 		if list.HasUnprobed() && list.HasImproved() && list.GetProbingCount() < alpha {
+			log.WithField("funct", "iterativeFindNode").Debugf("Improvment and has unprobed, cont.")
 			contact, error := list.GetUnprobed()
 			if error != nil {
 				continue
@@ -578,6 +577,7 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 		} else if !list.HasImproved() && list.GetProbingCount() == 0 {
 			log.WithField("func", "iterativeFindNode").Debugf("No improvement and no active queries, ending search")
 			close(probeCh)
+			wg.Wait()
 			probeRemaining(list, kn, targetID, alpha, handlerType)
 			return list
 		}
@@ -612,6 +612,9 @@ func probeRemaining(list *shortlist.Shortlist, kn *KademliaNode, targetID *kadem
 					close(contactCh)
 					close(valueCh)
 					list.AddContacts(contacts)
+					for _, contact := range contacts {
+						kn.GetRoutingTable().AddContact(contact)
+					}
 					list.MarkSucceeded(contact)
 				case <-time.After(15 * time.Second):
 					list.MarkFailed(contact)
@@ -632,6 +635,9 @@ func probeRemaining(list *shortlist.Shortlist, kn *KademliaNode, targetID *kadem
 					close(contactCh)
 					close(valueCh)
 					list.AddContacts(contacts)
+					for _, contact := range contacts {
+						kn.GetRoutingTable().AddContact(contact)
+					}
 					list.MarkSucceeded(contact)
 				case <-time.After(15 * time.Second):
 					close(contactCh)
