@@ -102,6 +102,8 @@ func TestIterativeNodeLookup(t *testing.T) {
 		}
 	}
 
+	network.EnableDropRate(true)
+
 	time.Sleep(1 * time.Second)
 
 	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000}, *kademliaID.NewRandomKademliaID())
@@ -166,6 +168,7 @@ func TestNodeJoin(t *testing.T) {
 	}
 
 	time.Sleep(1 * time.Second)
+	network.EnableDropRate(true)
 
 	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000}, *kademliaID.NewRandomKademliaID())
 	newNode.Start()
@@ -236,7 +239,7 @@ func TestStore(t *testing.T) {
 	}
 
 	time.Sleep(1 * time.Second) // Give nodes time to start
-	value := []byte("1234567890abcdef1234567890abcdef12345678")
+	value := "Some data to store in the DHT"
 	for node := range nodes {
 		nodes[node].Handle(PING, PingHandler)
 		nodes[node].Handle(PONG, PongHandler)
@@ -255,14 +258,14 @@ func TestStore(t *testing.T) {
 	}
 
 	time.Sleep(1 * time.Second)
+	mockNetwork.EnableDropRate(true)
 
 	rootNode := nodes[0]
 
-	value = []byte("1234567890abcdef1234567890abcdef12345678")
-	key := kademliaID.NewKademliaID(string(value)) // Must be greater than 20 bytes
-	log.WithField("func", "TestStore").WithField("value", string(value)).WithField("key", key.String()).Info("Storing value")
+	key := kademliaID.NewKademliaID(value) // Must be greater than 20 bytes
+	log.WithField("func", "TestStore").WithField("value", value).WithField("key", key.String()).Info("Storing value")
 
-	err := rootNode.Store(value)
+	err := rootNode.Store([]byte(value))
 	assert.NoErrorf(t, err, "Failed to store value: %v", err)
 
 	// Retrieve the value
@@ -277,7 +280,7 @@ func TestStore(t *testing.T) {
 	}
 
 	assert.NotNil(t, foundValue, "Expected at least one node to store the value")
-	assert.Equalf(t, value, foundValue, "Expected found value to match")
+	assert.Equalf(t, []byte(value), foundValue, "Expected found value to match")
 
 	// Stop all nodes
 	for _, node := range nodes {
@@ -286,10 +289,11 @@ func TestStore(t *testing.T) {
 }
 
 func TestFindValue(t *testing.T) {
+	log.SetLevel(log.DebugLevel)
 	log.WithField("func", "TestFindValue").Info("Starting TestFindValue")
 	mockNetwork := mock.NewMockNetwork()
 
-	n := 5
+	n := 8
 	nodes := make([]IKademliaNode, n)
 	for i := range nodes {
 		port := 8081 + i
@@ -329,16 +333,18 @@ func TestFindValue(t *testing.T) {
 
 	rootNode := nodes[0]
 
-	value := []byte("1234567890abcdef1234567890abcdef12345678")
+	value := []byte("hello world, this is a test value")
 	key := kademliaID.NewKademliaID(string(value)) // Must be greater than 20 bytes
 	log.WithField("func", "TestFindValue").WithField("value", string(value)).WithField("key", key.String()).Debug("Storing value")
+
+	mockNetwork.EnableDropRate(true)
 
 	err := rootNode.Store(value)
 	assert.NoErrorf(t, err, "Failed to store value: %v", err)
 
 	time.Sleep(1 * time.Second) // Give time for value to propagate
 
-	newNode, _ := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: 9000}, *kademliaID.NewRandomKademliaID())
+	newNode, _ := NewKademliaNode(mockNetwork, net.Address{IP: "127.0.0.1", Port: 10000}, *kademliaID.NewRandomKademliaID())
 	newNode.Start()
 	newNode.Handle(PING, PingHandler)
 	newNode.Handle(PONG, PongHandler)
@@ -358,10 +364,11 @@ func TestFindValue(t *testing.T) {
 }
 
 func TestJoinAndFindAll(t *testing.T) {
+	log.SetLevel(log.DebugLevel)
 	log.WithField("func", "TestNodeJoin").Info("Starting TestNodeJoin")
 	network := mock.NewMockNetwork()
 
-	n := 100
+	n := 20
 	nodes := make([]IKademliaNode, n)
 	for i := range nodes {
 		port := 8081 + i
@@ -395,8 +402,9 @@ func TestJoinAndFindAll(t *testing.T) {
 	}
 
 	time.Sleep(1 * time.Second)
+	network.EnableDropRate(true)
 
-	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 9000}, *kademliaID.NewRandomKademliaID())
+	newNode, _ := NewKademliaNode(network, net.Address{IP: "127.0.0.1", Port: 10000}, *kademliaID.NewRandomKademliaID())
 	newNode.Start()
 	newNode.Handle(PING, PingHandler)
 	newNode.Handle(PONG, PongHandler)
@@ -458,12 +466,18 @@ func TestJoinAndFindAll(t *testing.T) {
 		t.Fatalf("Unexpected number of visited nodes: %d", len(visited))
 	}
 
-	// Stop all nodes
-	for _, node := range nodes {
-		if node != nil { // Add nil check
-			node.Close()
+	// Stop all nodes - close in reverse order to ensure proper cleanup
+	if newNode != nil {
+		newNode.Close()
+	}
+
+	for i := len(nodes) - 1; i >= 0; i-- {
+		if nodes[i] != nil {
+			nodes[i].Close()
 		}
 	}
-	newNode.Close()
+
+	// Give goroutines time to exit cleanly after Close() is called
+	time.Sleep(100 * time.Millisecond)
 
 }

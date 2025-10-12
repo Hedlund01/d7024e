@@ -4,8 +4,6 @@ import (
 	kademliaBucket "d7024e/internal/kademlia/bucket"
 	kademliaContact "d7024e/internal/kademlia/contact"
 	kademliaID "d7024e/internal/kademlia/id"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // RoutingTable definition
@@ -81,7 +79,7 @@ func (routingTable *RoutingTable) GetMe() kademliaContact.Contact {
 // getBucketIndex get the correct Bucket index for the KademliaID
 func (routingTable *RoutingTable) getBucketIndex(id *kademliaID.KademliaID) int {
 	myID := routingTable.GetMe().ID
-	log.WithField("func", "getBucketIndex").WithField("myID", myID.String()).WithField("targetID", id.String()).Debug("Calculating bucket index.")
+	// log.WithField("func", "getBucketIndex").WithField("myID", myID.String()).WithField("targetID", id.String()).Debug("Calculating bucket index.")
 	distance := id.CalcDistance(myID)
 	for i := 0; i < kademliaID.IDLength; i++ {
 		for j := 0; j < 8; j++ {

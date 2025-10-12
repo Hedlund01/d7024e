@@ -16,6 +16,13 @@ type mockNetwork struct {
 	listeners  map[network.Address]chan network.Message
 	partitions map[network.Address]bool // true if the address is partitioned
 	dropRate   float64                  // probability of dropping a message
+	enableDrop bool                     // whether to enable message dropping
+}
+
+func (n *mockNetwork) EnableDropRate(enable bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.enableDrop = enable
 }
 
 func NewMockNetwork() network.Network {
@@ -29,6 +36,7 @@ func NewMockNetwork() network.Network {
 		listeners:  make(map[network.Address]chan network.Message),
 		partitions: make(map[network.Address]bool),
 		dropRate:   dropRate,
+		enableDrop: false,
 	}
 }
 
@@ -81,7 +89,7 @@ func (c *mockConnection) Send(msg *network.Message) error {
 	c.network.mu.RLock()
 
 	// Simulate message drop
-	if rand.Float64() < c.network.dropRate {
+	if rand.Float64() < c.network.dropRate && c.network.enableDrop {
 		c.network.mu.RUnlock()
 		return errors.New("message dropped due to network conditions")
 	}

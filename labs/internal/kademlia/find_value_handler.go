@@ -33,7 +33,7 @@ func FindValueRequestHandler(msg *network.Message, node IKademliaNode) error {
 		log.WithField("msgID", msg.MessageID.String()).Debugf("Value not found locally, sending contacts")
 		err = node.SendFindValueResponse(msg.From, data, msg.MessageID)
 		if err != nil {
-			log.WithField("msgID", msg.MessageID.String()).Error("Could not send FIND_VALUE response")
+			log.WithField("msgID", msg.MessageID.String()).WithField("func", "FindValueRequestHandler").Error("Could not send FIND_VALUE response")
 		}
 		return err
 	}

@@ -33,6 +33,10 @@ func NewKademliaNetwork(ctx context.Context) *KademliaNetwork {
 	}
 }
 
+func (network *KademliaNetwork) EnableDropRate(enable bool) {
+	log.Warn("EnableDropRate is not implemented in KademliaNetwork")
+}
+
 func (network *KademliaNetwork) Listen(addr network.Address) (network.Connection, error) {
 	log.Debugf("Listening on %s:%d", addr.IP, addr.Port)
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{

@@ -3,7 +3,6 @@ package kademlia
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 	"sync"
@@ -166,7 +165,7 @@ func (kn *KademliaNode) Start() {
 
 			msg, err := kn.GetConnection().Recv()
 			if err != nil {
-				if !kn.IsClosed() {
+				if kn != nil && !kn.IsClosed() {
 					log.WithField("func", "node/start").Warnf("KademliaNode %s failed to receive message: %v", kn.Address().String(), err)
 				}
 				return
@@ -218,8 +217,8 @@ func (kn *KademliaNode) Address() network.Address {
 // Handle registers a message handler for a specific message type, always online
 func (kn *KademliaNode) Handle(msgType string, handler MessageHandler) {
 	kn.nodeMu.Lock()
+	defer kn.nodeMu.Unlock()
 	kn.handlers[msgType] = handler
-	kn.nodeMu.Unlock()
 }
 
 func (kn *KademliaNode) TempHandle(msgType string, msgId *kademliaID.KademliaID, handler TempMessageHandler, contactCh chan []kademliaContact.Contact, valueCh chan []byte) {
@@ -264,6 +263,10 @@ func (kn *KademliaNode) GetHandlers() map[string]MessageHandler {
 
 // IsClosed returns whether the node is closed
 func (kn *KademliaNode) IsClosed() bool {
+	// Nil check to prevent panic during shutdown race conditions
+	if kn == nil {
+		return true
+	}
 	kn.closeMu.Lock()
 	defer kn.closeMu.Unlock()
 	return kn.closed
@@ -285,7 +288,7 @@ func checkReply(kn *KademliaNode, messageID *kademliaID.KademliaID) {
 			// Channel was closed, node is shutting down
 			return
 		}
-	case <-time.After(15 * time.Second):
+	case <-time.After(5 * time.Second):
 	}
 	kn.messageChanMap.mu.Lock()
 	delete(kn.messageChanMap.chMap, *messageID)
@@ -347,31 +350,40 @@ func (kn *KademliaNode) Store(value []byte) error {
 	log.WithField("func", "Store").Debugf("Storing value: %s", string(value))
 	id := kademliaID.NewKademliaID(string(value))
 	shortlist := kn.findNode(id)
-	if len(shortlist.GetAllProbedContacts()) == 0 {
+
+	probedContacts := len(shortlist.GetAllProbedContacts())
+	if probedContacts == 0 {
 		return errors.New("no nodes found to store the value")
 	}
-	errorsCh := make(chan error, len(shortlist.GetAllProbedContacts()))
-	log.WithField("func", "Store").Debugf("Storing value on %d nodes", len(shortlist.GetAllProbedContacts()))
+
+	log.WithField("func", "Store").Debugf("Storing value on %d nodes", probedContacts)
+	errorChan := make(chan error, probedContacts)
 	var wg sync.WaitGroup
-	wg.Add(len(shortlist.GetAllProbedContacts()))
+	wg.Add(probedContacts)
 	for _, contact := range shortlist.GetAllProbedContacts() {
 		if contact.ID.Equals(kn.GetRoutingTable().GetMe().ID) { // Skip self, do not send store request RPC to itself, in case we have somehow added ourselves to the shortlist
 			wg.Done()
 			continue
 		}
-		go kn.sendStore(contact.GetNetworkAddress(), id, value, &wg, errorsCh)
+		go kn.sendStore(contact.GetNetworkAddress(), id, value, &wg, errorChan)
 	}
 	wg.Wait()
-	close(errorsCh)
-
-	allErrors := make([]error, 0)
-	for err := range errorsCh {
+	close(errorChan)
+	nrOfErrors := 0
+	for err := range errorChan {
 		if err != nil {
-			allErrors = append(allErrors, err)
+			log.WithField("func", "Store").Errorf("Error storing value: %v", err)
+			nrOfErrors++
 		}
 	}
-	log.WithField("func", "Store").Infof("The stored object has hash %s", id.String())
-	return errors.Join(allErrors...)
+
+	if nrOfErrors == probedContacts {
+		return errors.New("failed to store the value on the network")
+	} else {
+		log.WithField("func", "Store").Infof("Successfully stored the object with hash %s", id.String())
+	}
+
+	return nil
 }
 
 func (kn *KademliaNode) SendPingMessage(to network.Address) error {
@@ -440,42 +452,53 @@ func (kn *KademliaNode) GetValue(hash *kademliaID.KademliaID) ([]byte, error) {
 	return value, nil
 }
 
-func (kn *KademliaNode) sendStore(to network.Address, hash *kademliaID.KademliaID, value []byte, wg *sync.WaitGroup, errorsCh chan error) {
+func (kn *KademliaNode) sendStore(to network.Address, hash *kademliaID.KademliaID, value []byte, wg *sync.WaitGroup, errorChan chan error) {
 	defer wg.Done()
 	msgID := kademliaID.NewRandomKademliaID()
 	log.WithField("to", to.String()).WithField("msgID", msgID.String()).WithField("func", "sendStore").Debugf("Sending STORE request to %s", to.String())
 
 	valCh := make(chan []byte, 1)
+	defer close(valCh)
 	kn.TempHandle(STORE_RESPONSE, msgID, StoreResponseTempHandler, nil, valCh)
 	data, marshalErr := json.Marshal(shortlist.StoreData{Hash: hash, Value: value})
 	if marshalErr != nil {
 		log.WithField("msgID", msgID.String()).WithField("func", "sendStore").Errorf("Failed to marshal store data: %v", marshalErr)
-		errorsCh <- marshalErr
+		errorChan <- marshalErr
+		return
 	}
 
 	err := kn.send(to, STORE_REQUEST, data, msgID, true)
 	if err != nil {
 		log.WithField("msgID", msgID.String()).WithField("func", "sendStore").Errorf("Failed to send STORE request to %s: %v", to.String(), err)
-		errorsCh <- err
+		kn.nodeMu.Lock()
+		delete(kn.tempHandlers, tempHandlerKey{msgType: STORE_RESPONSE, msgId: *msgID})
+		delete(kn.tempHandlerChannels, tempHandlerKey{msgType: STORE_RESPONSE, msgId: *msgID})
+		kn.nodeMu.Unlock()
+		errorChan <- err
+		return
 	}
 
 	select {
 	case result := <-valCh:
 		if string(result) != "OK" {
-			errorsCh <- fmt.Errorf("STORE request rejected by %s", to.String())
+			log.WithField("msgID", msgID.String()).WithField("func", "sendStore").Errorf("STORE request to %s was rejected", to.String())
+			errorChan <- errors.New("store request rejected")
+			return
 		}
-	case <-time.After(15 * time.Second):
+		log.WithField("msgID", msgID.String()).WithField("func", "sendStore").Debugf("STORE request to %s succeeded", to.String())
+		errorChan <- nil
+	case <-time.After(5 * time.Second):
 		log.WithField("msgID", msgID.String()).WithField("func", "sendStore").Errorf("Timeout waiting for STORE_RESPONSE")
-		errorsCh <- fmt.Errorf("timeout waiting for STORE_RESPONSE from %s", to.String())
+		errorChan <- errors.New("timeout waiting for store response")
 	}
 }
 
 func (kn *KademliaNode) findNode(targetID *kademliaID.KademliaID) *shortlist.Shortlist {
-	return iterativeLookup(kn, targetID, FIND_NODE_RESPONSE)
+	return iterativeLookup(kn, targetID, FIND_NODE_RESPONSE, 1)
 }
 
 func (kn *KademliaNode) findValue(targetID *kademliaID.KademliaID) ([]byte, error) {
-	value := iterativeLookup(kn, targetID, FIND_VALUE_RESPONSE).GetValue()
+	value := iterativeLookup(kn, targetID, FIND_VALUE_RESPONSE, 1).GetValue()
 	if value.Value == nil {
 		log.WithField("func", "findValue").Debugf("Value not found in network")
 		return nil, errors.New("value not found in network")
@@ -483,7 +506,7 @@ func (kn *KademliaNode) findValue(targetID *kademliaID.KademliaID) ([]byte, erro
 	return value.Value, nil
 }
 
-func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerType string) *shortlist.Shortlist {
+func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerType string, retryCount int) *shortlist.Shortlist {
 	shortlistParam := kn.GetRoutingTable().FindClosestContacts(targetID, kademliaBucket.GetBucketSize())
 	if len(shortlistParam) == 0 {
 		log.Warn("Shortlist is empty, returning nil")
@@ -523,7 +546,15 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 					kn.TempHandle(FIND_NODE_RESPONSE, messageID, FindNodeResponseTempHandler, contactCh, nil)
 					err := kn.SendFindNode(contact.GetNetworkAddress(), messageID, targetID)
 					if err != nil {
+						kn.nodeMu.Lock()
+						delete(kn.tempHandlers, tempHandlerKey{msgType: FIND_NODE_RESPONSE, msgId: *messageID})
+						delete(kn.tempHandlerChannels, tempHandlerKey{msgType: FIND_NODE_RESPONSE, msgId: *messageID})
+						kn.nodeMu.Unlock()
+						list.MarkFailed(contact)
+						close(contactCh)
+						close(valueCh)
 						log.Error("Failed to send FindNode in iterativeFindNode, error: ", err)
+						break
 					}
 					select {
 					case contacts := <-contactCh:
@@ -535,13 +566,27 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 						}
 						list.MarkSucceeded(contact)
 					case <-time.After(5 * time.Second):
+						close(contactCh)
+						close(valueCh)
+						kn.nodeMu.Lock()
+						delete(kn.tempHandlers, tempHandlerKey{msgType: FIND_NODE_RESPONSE, msgId: *messageID})
+						delete(kn.tempHandlerChannels, tempHandlerKey{msgType: FIND_NODE_RESPONSE, msgId: *messageID})
+						kn.nodeMu.Unlock()
 						list.MarkFailed(contact)
 					}
 				case FIND_VALUE_RESPONSE:
 					kn.TempHandle(FIND_VALUE_RESPONSE, messageID, FindValueResponseTempHandler, contactCh, valueCh)
 					err := kn.SendFindValue(contact.GetNetworkAddress(), messageID, targetID)
 					if err != nil {
+						kn.nodeMu.Lock()
+						delete(kn.tempHandlers, tempHandlerKey{msgType: FIND_VALUE_RESPONSE, msgId: *messageID})
+						delete(kn.tempHandlerChannels, tempHandlerKey{msgType: FIND_VALUE_RESPONSE, msgId: *messageID})
+						kn.nodeMu.Unlock()
+						list.MarkFailed(contact)
+						close(contactCh)
+						close(valueCh)
 						log.Error("Failed to send FindValue in iterativeFindNode, error: ", err)
+						break
 					}
 					select {
 					case value := <-valueCh:
@@ -561,6 +606,10 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 					case <-time.After(5 * time.Second):
 						close(contactCh)
 						close(valueCh)
+						kn.nodeMu.Lock()
+						delete(kn.tempHandlers, tempHandlerKey{msgType: FIND_NODE_RESPONSE, msgId: *messageID})
+						delete(kn.tempHandlerChannels, tempHandlerKey{msgType: FIND_NODE_RESPONSE, msgId: *messageID})
+						kn.nodeMu.Unlock()
 						list.MarkFailed(contact)
 					}
 				}
@@ -588,6 +637,16 @@ func iterativeLookup(kn *KademliaNode, targetID *kademliaID.KademliaID, handlerT
 			close(probeCh)
 			wg.Wait()
 			probeRemaining(list, kn, targetID, alpha, handlerType)
+			return list
+		} else if list.GetProbingCount() == 0 && !list.HasUnprobed() {
+			if list.Len() < 2 && retryCount > 0 {
+				log.WithField("func", "iterativeFindNode").Debugf("Failed on first send, retrying once")
+				return iterativeLookup(kn, targetID, handlerType, retryCount-1)
+			}
+			log.WithField("func", "iterativeFindNode").Debugf("No active queries and no unprobed contacts, ending search")
+
+			close(probeCh)
+			wg.Wait()
 			return list
 		}
 	}

@@ -22,6 +22,7 @@ type Network interface {
 	// Network partition simulation
 	Partition(group1, group2 []Address)
 	Heal()
+	EnableDropRate(enable bool)
 }
 
 type Connection interface {

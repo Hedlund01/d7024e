@@ -17,7 +17,12 @@ container:
 	docker build -t $(BUILD_IMAGE) .
 
 test: 
-	go test -v -cover --race ./...
+	go test -cover --race ./...
+
+coverage:
+	go test -coverprofile=coverage.out -covermode=atomic --race ./...
+	@echo "Overall coverage:"
+	go tool cover -func=coverage.out | grep total
 
 # up takes one argument and uses the docker-compose file
 up:
