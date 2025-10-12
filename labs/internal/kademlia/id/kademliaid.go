@@ -26,13 +26,7 @@ func NewKademliaID(data string) *KademliaID {
 	return &newKademliaID
 }
 
-func NewKademliaIDFromBytes(data []byte) *KademliaID {
-	newKademliaID := KademliaID{}
-	for i := 0; i < IDLength; i++ {
-		newKademliaID[i] = data[i]
-	}
-	return &newKademliaID
-}
+
 
 // NewRandomKademliaID returns a new instance of a random KademliaID,
 // change this to a better version if you like
@@ -93,5 +87,9 @@ func NewKademliaIDFromHexString(hexStr string) (*KademliaID, error) {
 	if len(bytes) != IDLength {
 		return nil, hex.ErrLength
 	}
-	return NewKademliaIDFromBytes(bytes), nil
+	newKademliaID := KademliaID{}
+	for i := 0; i < IDLength; i++ {
+		newKademliaID[i] = bytes[i]
+	}
+	return &newKademliaID, nil
 }
