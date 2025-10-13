@@ -20,6 +20,8 @@ A high level system architecture diagram is shown in Figure \ref{fig:architectur
     \item \textbf{Routing Table:} The routing table is responsible for maintaining a list of known nodes in the network. It organizes nodes into buckets based on their distance from the current node, facilitating efficient lookups and routing. This implementation does not implement the correct binary tree structure as described in the Kademlia paper, but rather uses a simpler list based approach for storing nodes in each bucket (given by the lab instructions).
     \item \textbf{Message Handlers:} These components are responsible for processing incoming messages and executing the appropriate actions based on the message type (e.g., PING, STORE, FIND VALUE). There also exsists temporary message handlers which are used for waiting for responses to outgoing requests, such as waiting for a PONG response after sending a PING request. These temporary handlers are removed once the response is received or a timeout occurs. But they are removed from the diagram for simplicity.
     \item \textbf{Command Line Interface (CLI):} The CLI provides an interactive interface for users to interact with the Kademlia node, allowing them to execute commands such as joining the network, storing values, and retrieving values.
+    
+\end{itemize}
 
 \begin{figure}[htbp]
     \centering
