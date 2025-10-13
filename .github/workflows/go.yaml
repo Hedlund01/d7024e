@@ -1,0 +1,76 @@
+name: Go
+
+on:
+  push:
+    branches:
+      - main
+      - 'lab*'
+  pull_request:
+    branches:
+      - main
+      - 'lab*'
+
+jobs:
+  test:
+    name: Tests (Coverage)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'labs/go.mod'
+          cache-dependency-path: |
+             labs/go.sum
+
+      - name: Build
+        run: go build -v ./...
+        working-directory: ./labs
+
+      - name: Run Tests (without race detection)
+        run: go test -v -coverprofile=coverage.out -covermode=atomic ./...
+        working-directory: ./labs
+        env:
+          TZ: Europe/Stockholm
+
+      - name: Upload Coverage to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: labs/coverage.out
+
+      - name: Generate coverage report
+        run: go tool cover -html=coverage.out -o coverage.html
+        working-directory: ./labs
+
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: labs/coverage.html
+
+  test-race:
+    name: Tests (Race Detection)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'labs/go.mod'
+          cache-dependency-path: |
+             labs/go.sum
+
+      - name: Build
+        run: go build -v ./...
+        working-directory: ./labs
+
+      - name: Run Tests (with race detection)
+        run: go test -v -race ./...
+        working-directory: ./labs
+        env:
+          TZ: Europe/Stockholm

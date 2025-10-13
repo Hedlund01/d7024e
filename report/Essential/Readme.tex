@@ -1,0 +1,89 @@
+%-----------------------------------------------
+%         Hur man använder denna mall!
+%-----------------------------------------------
+%   Titelsida
+Ändra variablerna i "Essential/Title.tex".
+% Hur titelsidan ser ut genereras längre ner i samma kod.
+
+%   Sections
+Skriv direkt i filerna "Sections/...tex".
+% Vill du lägga till fler filer så ändra i main.tex.
+
+%   Lägg till bilagor
+Lägg in bilagor i "Sections/Bilagor/".
+Namnge dom $"Bilaga_1.tex", "Bilaga_2.tex",..$ så läggs dom automatiskt in i dokumentet (med rätt sidnumrering).
+% Koden kollar ifall Bilaga_1.tex finns, annars körs den ej.
+% koden för \bilagaloop är skriven i "Essential/Packages.tex".
+
+%   Referenser
+Lägg till referenser i "Essential/References.bib".
+Ändra referensstil i /Essential/Packages.tex rad 18.
+
+%   Har du idéer på förbättringar?
+https://github.com/ReleaseTheKnowledge/LTU-Latex-Template/issues
+
+%%  SKÖNA COMMANDS   --> "Essential/Packages.tex". Sida 70 och ner!
+%%  SNABB COMPILE!, --> "Essential/Packages.tex". Bra för många bilder!
+%%  Ändra språk,    --> "Essential/Packages.tex".
+%%  Fler packages,  --> "Essential/Packages.tex". Lägg till under % Extra.
+%%  Mer plats på titelsida,--> "Essential/Titel.tex", Ändra "thetitlestyle".
+
+%-----------------------------------------------
+%                  Nice stuff
+%-----------------------------------------------
+
+Hänvisning till \cref{e:namn}
+\begin{equation} \label{e:namn}
+\end{equation}
+
+
+Hänvisning till \cref{f:namn}.
+\begin{figure} [H]
+    \centering 
+    \includegraphics[width=0.75\textwidth]{bild.png}
+    \caption{Beskrivande text.}
+    \label{f:namn}
+\end{figure}
+
+
+Hänvisning till \cref{t:namn}.
+\begin{table}[H]
+\centering
+\caption{Namn} \label{t:namn}
+\begin{tabular}{@{} l l l @{}} \toprule
+\B{} & \B{} & \B{} \\
+\midrule
+     &  &  \\
+     &  &  \\
+     &  &  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+%-----------------------------------------------
+%                     Länkar
+%-----------------------------------------------
+% Mattematiska symboler
+% http://tug.ctan.org/info/undergradmath/undergradmath.pdf
+
+% Draw symbols
+% http://detexify.kirelabs.org/classify.html 
+
+% ALLA symboler
+% http://tug.ctan.org/info/symbols/comprehensive/symbols-a4.pdf
+
+% Generera tabeller
+% http://www.tablesgenerator.com/ 
+
+% Hur man gör bra tabeller
+% https://inf.ethz.ch/personal/markusp/teaching/guides/guide-tables.pdf
+
+% Skriva si enheter / nummer
+% http://ctan.math.utah.edu/ctan/tex-archive/macros/latex/contrib/siunitx/siunitx.pdf
+
+% Hur man skriver en rapport (LTU)
+% https://www.overleaf.com/latex/templates/lulea-university-of-technology-lab-report-template-tvm-department/xxqzqvnnfwgg
+
+% Kolla antal ord och tecken.
+% https://wordcounter.net/character-count
