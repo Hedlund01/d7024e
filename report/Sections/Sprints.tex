@@ -36,3 +36,19 @@ s were implemented and tested. Finally we also implemented a simple command line
 \subsubsection{Planned work}
 Under sprint 2 we plan to complete as many U* tickets as we can manage. Which of the tickes we will be able to complete we cannot say ahead of time. But we plan to discuss which ones we would like to complete the most. Such that we arrive at some order of priority for the tickets.
 
+\subsubsection{Unit Testing}
+In sprint 2 we contiued to create unit tests to meet the required code coverage of 50\%. Altough we create multiple unit test from the begining of the project in sprint 1. They were mostly for our own created code, so the whole project did not have sufficient code coverage. In sprint 2 we created unit tests for the provided code, as well as for our own code that was not covered in sprint 1 to meet the total 50\% code coverage requirement.
+
+The mindset of creating unit tests helped us create and understand several hard concepts in the Kademlia protocol. For example, using TDD (Test Driven Development) to create the unit test first and then implement the functionality to make the test pass, this forced us to think about the functionality in a different way. This helped us understand the Kademlia protocol better and also helped us create a more robust implementation.
+
+\subsubsection{Concurrency and Thread Safety}
+During this sprint we continued to focus on concurrency and thread safty during the implementation tickets. This included using mutexes for any shared data structures and creating separate go routines for handling concurrent tasks. Because of our focus on concurrency and thread safety from the start of the project, we were able to avoid many potential issues and ensure that our implementation was robust and reliable. This can be does not fail because of race conditions via the go race flag. Altough this race flag is not the best way to measure all race conditions, it is still a good indicator that we have done a good job with concurrency and thread safety.
+
+\subsubsection{Command Line Interface}
+In sprint 1 we started to lay the foundation for command structure, but due to the needed interactivity in the requirements, we rewrote the command line interface to be more interactive. This was done using the \textit{Cobra} package, and hijacking the main thread for the interactive console, while letting the other go routines handle the network communication and other tasks. This way we could have a interactive console, while still being able to handle incoming messages and other tasks in the background. This interactive console allows us to run commands like \textit{put} and \textit{get} to sotre and retrive values from the Kademlia network via the command line interface of each docker instance of the node.
+
+\subsubsection{Various Bug Fixes}
+We encountered several bugs, and wrong implementation of the kademlia protocol during sprint 2. This included bugs in the iterative lookup procedure, as well as joining procedure. This was addressed by going back to the Kademlia paper and the SourceForge implementations details and re-reading the relevant sections. This helped us understand the protocol better and also helped us identify and fix the bugs and wrong assumptions in our implementation.
+
+\subsubsection{Review}
+Our stated plan for sprint 2 was to complete the remaining M tickets, as well as as many U tickets as possible. While this was the plan, due to time constraints related to other courses, mainly the project course, we decided to proritize completing the M tickets and putting less focus on the U tickets. This ment that we were not able to complete any U tickets. Even if this was not our original plan, we are still satisfied with the work that we have achieved in both sprint 2 and the course as a whole.
