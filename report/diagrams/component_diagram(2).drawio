@@ -1,0 +1,157 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0" version="28.2.5">
+  <diagram name="Kademlia System Architecture" id="kademlia-architecture">
+    <mxGraphModel dx="2066" dy="1139" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="net_layer" value="Network Abstraction Layer" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8E8E8;strokeColor=#666666;dashed=1;verticalAlign=top;fontStyle=1;align=left;" parent="1" vertex="1">
+          <mxGeometry x="100" y="650" width="900" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="kad_layer" value="Kademlia DHT Layer" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8E8E8;strokeColor=#666666;dashed=1;verticalAlign=top;fontStyle=1;align=left;shadow=0;" parent="1" vertex="1">
+          <mxGeometry x="100" y="290" width="900" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="GDbrDhkOE_Z_yYGQEvIm-21" value="" style="rounded=0;whiteSpace=wrap;html=1;glass=0;shadow=0;opacity=50;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="665" y="300" width="280" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="app_layer" value="Application Layer" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8E8E8;strokeColor=#666666;dashed=1;verticalAlign=top;fontStyle=1;align=left;" parent="1" vertex="1">
+          <mxGeometry x="100" y="50" width="900" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="cli" value="&lt;b&gt;CLI Interface&lt;/b&gt;&lt;br&gt;(Cobra)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#CCE5FF;strokeColor=#0066CC;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="170" y="90" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="start_cmd" value="start&lt;br&gt;(CLI command)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" parent="1" vertex="1">
+          <mxGeometry x="120" y="190" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="shell_cmd" value="shell&lt;br&gt;(CLI command)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" parent="1" vertex="1">
+          <mxGeometry x="250" y="190" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="GDbrDhkOE_Z_yYGQEvIm-26" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" edge="1" parent="1" source="kad_node" target="routing_table">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="390" y="320" />
+              <mxPoint x="390" y="350" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GDbrDhkOE_Z_yYGQEvIm-27" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" target="network_iface">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="460" y="327.5" as="sourcePoint" />
+            <mxPoint x="390" y="697.5" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="460" y="320" />
+              <mxPoint x="390" y="320" />
+              <mxPoint x="390" y="700" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="kad_node" value="&lt;b&gt;Kademlia Node&lt;/b&gt;&lt;br&gt;Orchestration &amp; Lookup" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#CCE5FF;strokeColor=#0066CC;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="420" y="290" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="GDbrDhkOE_Z_yYGQEvIm-22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="routing_table" target="id">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="230" y="385" as="sourcePoint" />
+            <mxPoint x="280" y="505" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="210" y="410" />
+              <mxPoint x="315" y="410" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="routing_table" value="&lt;b&gt;Routing Table&lt;/b&gt;&lt;br&gt;160 Buckets&lt;br&gt;k=20" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#CCE5FF;strokeColor=#0066CC;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="135" y="320" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="bucket" value="Bucket" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" parent="1" vertex="1">
+          <mxGeometry x="110" y="425" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="GDbrDhkOE_Z_yYGQEvIm-23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="contact" target="id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="contact" value="Contact" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" parent="1" vertex="1">
+          <mxGeometry x="110" y="500" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="handlers" value="&lt;b&gt;Message Handlers&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#CCE5FF;strokeColor=#0066CC;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="730" y="310" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ping_h" value="PING" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="830" y="390" width="110" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="pong_h" value="PONG" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="830" y="440" width="110" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="find_val_h" value="FIND_VALUE" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="685" y="445" width="110" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="store_h" value="STORE" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="685" y="495" width="110" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="GDbrDhkOE_Z_yYGQEvIm-25" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="shortlist" target="routing_table">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="390" y="515" />
+              <mxPoint x="390" y="350" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="shortlist" value="Iterative Lookup" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" parent="1" vertex="1">
+          <mxGeometry x="460" y="490" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="id" value="ID&lt;br&gt;(160-bit)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" parent="1" vertex="1">
+          <mxGeometry x="255" y="500" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="network_iface" value="&lt;b&gt;Network Interface&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF4CC;strokeColor=#D6B656;" parent="1" vertex="1">
+          <mxGeometry x="250" y="690" width="130" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="connection_iface" value="&lt;b&gt;Connection Interface&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF4CC;strokeColor=#D6B656;" parent="1" vertex="1">
+          <mxGeometry x="620" y="690" width="130" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="udp" value="UDP Transport" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" parent="1" vertex="1">
+          <mxGeometry x="420" y="730" width="130" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="test_layer" value="Testing Infrastructure" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8E8E8;strokeColor=#666666;dashed=1;verticalAlign=top;fontStyle=1;align=left;" parent="1" vertex="1">
+          <mxGeometry x="100" y="820" width="900" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="mock" value="&lt;b&gt;Mock Network&lt;/b&gt;&lt;br&gt;up to 1000+ Node Emulation" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#CCE5FF;strokeColor=#0066CC;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="400" y="860" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;" parent="1" source="cli" target="start_cmd" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;" parent="1" source="cli" target="shell_cmd" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;" parent="1" source="cli" target="kad_node" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;" parent="1" source="kad_node" target="handlers" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;" parent="1" source="kad_node" target="shortlist" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=1;" parent="1" source="routing_table" target="bucket" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="210" y="410" />
+              <mxPoint x="160" y="410" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arrow9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;" parent="1" source="bucket" target="contact" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;" parent="1" source="network_iface" target="udp" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;" parent="1" source="connection_iface" target="udp" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;" parent="1" source="mock" target="network_iface" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="find_node_h" value="FIND_NODE" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="685" y="390" width="110" height="35" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

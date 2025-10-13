@@ -1,0 +1,54 @@
+\section{Sprints}
+
+\subsection{Organizing Sprints}
+
+To structure and organize the work efficiently, GitHub Projects is used to create a storyboard for both sprints. The storyboard is available under the 
+Projects tab in the repository, providing an overview of the workflow throughout the course.
+
+\subsection{Sprint 1}
+\subsubsection{Pinging, Joining and Finding Nodes}
+During sprint 1 we focused on completing work on the M* tickets we had planned out in sprint 0. We started of with getting the PING procedure to work. In the process we established how each node is going to perform non-blocking I/O operations. This was done through a main go routine that reads incoming communication and spawns of new go routines to handle the incoming messsages. We also made sure that these communications have to include a message ID, so that we can match responses to requests. This main go routine is also responsible for adding new nodes to the routing table through the already provided routing table implementation.
+
+To test what we had built so far, we had to create a mock network. This was done mostly according to the tutorial provided with the lab instructions. Once we were satisfied with the PING procedure, we moved on to implementing the iterative node lookup procedure. In order for node joining to work. This required a lot of tinkering, especially to make sure that the procudure worked as described in the Kademlia paper.
+
+It had to be capable of sending out multiple requests in parallel, and also handle the responses. All while updating a common shortlist of nodes to probe. In the end we created a separate package for the shortnode list and made sure that it would be thread safe. Thereby simplifying the implementation of the iterative node lookup procedure.
+
+The iterative node lookup procedure itself uses a sort of producer-consumer pattern. Where we always have at most \textit{alpha} go routines available to send out requests. Which are fed their nodes to probe from a channel on the main procedure thread. Which in turn come from the shortlist. As such the main procedure thread is the producer, whilst the go routines are the consumers.
+
+\subsubsection{Store and Find Value}
+After completing the iterative node lookup procedure, we moved on to implementing the STORE and FIND VALUE procedures. As well as their coresponding iterative procedures. A lot of this work could be reused from the iterative node lookup procedure. With only some data structure additions for handling the storing and finding of values on nodes.
+
+\subsubsection{Unit Testing}
+To ensure that we were on the right track during development we created unit tests for almost all of the implemented functionality. Like creating a mock network, as well as writing specific test for the procedures.
+
+\subsubsection{Concurrency and Thread Safety}
+As mentioned earlier, we focused on concurrency and thread safety from the begging. Which has made our diagnosing of issues a lot easier. We use mutexes for any mutually shared data structures and create separate go routines for handling concurrent tasks.
+
+\subsubsection{Command Line Interface}
+Finally we tried to implement simple command line interfaces for the nodes.
+
+\subsubsection{Review}
+To sum up sprint 1, we implemented the M* tickets we had planned out in sprint 0. We focused on concurrency and thread safety from the start. Implemented unit tests to ensure we had sufficient coverage. All of the necessary procedure
+s were implemented and tested. Finally we also implemented a simple command line interface for the nodes.
+
+\subsection{Sprint 2}
+
+\subsubsection{Planned work}
+Under sprint 2 we plan to complete as many U* tickets as we can manage. Which of the tickes we will be able to complete we cannot say ahead of time. But we plan to discuss which ones we would like to complete the most. Such that we arrive at some order of priority for the tickets.
+
+\subsubsection{Unit Testing}
+In sprint 2 we contiued to create unit tests to meet the required code coverage of 50\%. Altough we create multiple unit test from the begining of the project in sprint 1. They were mostly for our own created code, so the whole project did not have sufficient code coverage. In sprint 2 we created unit tests for the provided code, as well as for our own code that was not covered in sprint 1 to meet the total 50\% code coverage requirement.
+
+The mindset of creating unit tests helped us create and understand several hard concepts in the Kademlia protocol. For example, using TDD (Test Driven Development) to create the unit test first and then implement the functionality to make the test pass, this forced us to think about the functionality in a different way. This helped us understand the Kademlia protocol better and also helped us create a more robust implementation.
+
+\subsubsection{Concurrency and Thread Safety}
+During this sprint we continued to focus on concurrency and thread safty during the implementation tickets. This included using mutexes for any shared data structures and creating separate go routines for handling concurrent tasks. Because of our focus on concurrency and thread safety from the start of the project, we were able to avoid many potential issues and ensure that our implementation was robust and reliable. This can be does not fail because of race conditions via the go race flag. Altough this race flag is not the best way to measure all race conditions, it is still a good indicator that we have done a good job with concurrency and thread safety.
+
+\subsubsection{Command Line Interface}
+In sprint 1 we started to lay the foundation for command structure, but due to the needed interactivity in the requirements, we rewrote the command line interface to be more interactive. This was done using the \textit{Cobra} package, and hijacking the main thread for the interactive console, while letting the other go routines handle the network communication and other tasks. This way we could have a interactive console, while still being able to handle incoming messages and other tasks in the background. This interactive console allows us to run commands like \textit{put} and \textit{get} to sotre and retrive values from the Kademlia network via the command line interface of each docker instance of the node.
+
+\subsubsection{Various Bug Fixes}
+We encountered several bugs, and wrong implementation of the kademlia protocol during sprint 2. This included bugs in the iterative lookup procedure, as well as joining procedure. This was addressed by going back to the Kademlia paper and the SourceForge implementations details and re-reading the relevant sections. This helped us understand the protocol better and also helped us identify and fix the bugs and wrong assumptions in our implementation.
+
+\subsubsection{Review}
+Our stated plan for sprint 2 was to complete the remaining M tickets, as well as as many U tickets as possible. While this was the plan, due to time constraints related to other courses, mainly the project course, we decided to proritize completing the M tickets and putting less focus on the U tickets. This ment that we were not able to complete any U tickets. Even if this was not our original plan, we are still satisfied with the work that we have achieved in both sprint 2 and the course as a whole.
