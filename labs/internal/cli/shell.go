@@ -88,6 +88,12 @@ func startShell(rootCmd *cobra.Command) {
 			continue
 		}
 
+		rootCmd.ResetCommands()
+		rootCmd.AddCommand(createStatusCommand())
+		rootCmd.AddCommand(createExitCommand())
+		rootCmd.AddCommand(createPutCommand())
+		rootCmd.AddCommand(createGetCommand())
+
 		rootCmd.SetArgs(args)
 		if err := rootCmd.Execute(); err != nil {
 			shellErrorf("Command execution failed: %v", err)

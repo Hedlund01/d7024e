@@ -3,7 +3,7 @@ all: build
 
 BINARY_NAME := kadlab
 BUILD_IMAGE ?= kadlab:latest
-NUM_NODES ?= 2
+NUM_NODES ?= 50
 VERSION := $(shell git rev-parse --short HEAD)
 BUILDTIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
@@ -31,3 +31,9 @@ up:
 
 down:
 	docker stack rm KademliaStack
+
+attach:
+ifndef ID
+	$(error ID is not set. Usage: make attach ID=<container_id>)
+endif
+	docker attach $(ID)
