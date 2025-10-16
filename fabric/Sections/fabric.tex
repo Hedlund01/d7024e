@@ -1,0 +1,33 @@
+\section{Summering}
+
+Hyperledger Fabric är ett modulärt öppenkällkods system för att driftsätta och sköta tillståndsbaserade blockkedjor. Det ägs av Linux Foundation som ett av deras Hyperledger projekt och är till stor del utvecklat av IBM. Målet med Fabric var att skapa ett blockkedjesystem som skulle stödja ett nätverk av distribuerade applikationer. Till skillnad från offentliga blockkedjor som Bitcoin och Ethereum ska blockkedjan även fungera utan PoW (proof of work), utan baserat på modulärt konsensusprotokoll som kan modifieras efter användingsområdet. Därmed har Fabric en annorlunda arkitektur från andra blockkedjor, som löser de vanliga problemen som blockkedjor möter på ett nytt sätt.
+
+
+
+%Arkitekturöversikt - Execute-Order-Validate
+Fabrics arkitekturella modell, Execute-Order-Validate skiljer sig från många andra och tidigare blockkedjor som använder sig av en Order-Execute modell. Detta val tillåter Fabric att köra distribuerade applikationer skrivna i mer brett använda programmeringsspråk, så som Java, Go och Node.js. Till skillnad från andra blockkedjor som ofta har ett eget DSL (domain-specific language) för att skriva smartkontrakt.
+
+Execute-Order-Validate fungerar genom att applikationer först skickar transaktionsförslag till endorser noder, noder som får och kan köra smartkontrakt, för att få tillbaka simulerade resultat av transaktionen baserad på den lokala kopian av ledgern hos de enskila endorser noderna. När applikationen har samlat in tillräckligt många av dessa endorser svar, baserat på hur Fabric endorsement policyn är satt, skickas dessa förslag till en order nod. Dessa transaktionsförslag innehåller endast den simulerade effekten av transaktionen, inte själva transaktionen, detta görs genom att endast skicka tillbaka vilka värden som behöver uppdateras i ledgern. Detta är detta som kallas för read-write sets och är en av de stora anledningarna till att applikationer kan skrivas i så brett antal språk, då själva transaktionen inte körs i konsensusprotokollet.
+
+Order noden avgör om endorsement policyn har mötts och ordnar transaktionerna i block, som sedan skickas till alla noder i nätverket. Varje nod validerar sedan blocken genom att kontrollera att endorsement policyn har mötts samt att read-write set inte har några konflikter med den lokala kopian av ledgern. Om en transaktion är giltig uppdateras ledgern med de nya värdena från read-write set.
+
+
+
+%Ledger och smartkontrakt
+
+Fabric använder en distribuerad ledger som består av två delar. Blockkedjan, som lagrar oföränderliga transaktionsposter, och det globala tillståndet, en databas som innehåller de senaste värdena i blockkedjan. Vilket är kritiskt för simuleringen av transaktioner i Execute-Order-Validate modellen. Men tillåter även applikationer att snabbt läsa data, utan att behöva gå igenom hela blockkedjan. Fabric smartkontrakt kallas även för chaincode och olika peers kan godkänna olika versioner av samma chaincode, eller ha tillgång till olika set av chaincodes. Vilket gör att Fabric kan stödja flera olika applikationer och användningsområden på samma nätverk.
+
+
+
+%Prestanda och modularitetDe
+Modellen execute-order-validate förbättrar parallellitet och skalbarhet genom att möjliggöra samtidig simulering av transaktioner samt reducera
+redundant beräkning. Fabric är byggt för hög genomströmning, feltolerans samt flexibel styrning.
+
+%Slutsats
+
+
+
+\section{Reflektioner}
+Blockkedjeteknologi har mestadels använts för offentliga nätverk som hanterar transaktioner av kryptovalutor. Men teknologin i sig kan användas till mycket fler scenarior, då problemet det löser är verifiering av händelseförlopp. För andra scenarion, exempelvis där företag vill samarbeta och dela data som är känslig, är inte offentliga blockkedjor optimala. Därför har tillståndsbaserade blockkedjor som Hyperledger Fabric utvecklats för att möta dessa behov. Att även kunna reglera hur konsensus sker i nätverket, genom olika protokoll, ger möjligheten till nya styrningsstrukturer. Där vilken tillit man ger mellan aktörerna är i högsta grad styrt av scenariot. Vilket öppnar upp för många nya användningsområden för blockkedjeteknologi med Hyperledger Fabric.
+
+Ett exempel är i leveranskedjor. Walmart använder Hyperledger Fabric för att spåra matvaror från produktion till butik. Genom att använda Fabric kan Walmart och deras leverantörer dela information om produkternas ursprung, transport och lagring på ett säkert och transparent sätt. Detta förbättrar spårbarheten, minskar risken för bedrägerier och ökar konsumenternas förtroende för produkterna.
